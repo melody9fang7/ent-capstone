@@ -14,5 +14,4 @@ For NSQIP, we recommend having this folder layout:
         ├── nsqip_new
         └── nsqip
 ```
- 
-Keep original SAV files in **nsqip_sav**, redirect filtered sav files for each year to **nsqip_sav_filtered**, redirect the csv for each year to **nsqip_new**, redirect the combined and final filtered csv's to **nsqip**.
+Keep original SAV files in **nsqip_sav**, create filtered sav files for each of those files using SPSS syntax files, and store those filtered sav files for each year to **nsqip_sav_filtered**. Use ***data_handling_nsqip.py*** to create a csv for each year in **nsqip_new**, and the combined and final filtered csv in **nsqip**. This repo includes a csv of the relevant cpt codes that we are looking at in our analysis, ***ent_cpt_codes.csv***.
