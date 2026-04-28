@@ -16,7 +16,6 @@ for f in files:
     elif cols != base_cols:
         print("Column mismatch:", f)
 
-
 for f in files:
     print(f"Processing {f}...")
 
