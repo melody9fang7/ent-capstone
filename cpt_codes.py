@@ -15,6 +15,35 @@ def standardize_cpt(series: pd.Series) -> pd.Series:
  
     return series.apply(_to_str)
 
+
+def get_top10_cpts(df: pd.DataFrame) -> list:
+    """
+    returns a list of the top 10 CPT codes by volume
+    """
+    return df['CPT'].value_counts().head(10).index.tolist()
+
+
+def plot_top10_cpt_stacked(df, top_10_cpts) -> None:
+    """
+    given a list of the top 10 cpt codes, creates a stacked area chart of the procedural volume each code over time
+    """
+    top_10_cpts = get_top10_cpts(df)
+    df_top = df[df['CPT'].isin(top_10_cpts)]
+    pivot = df_top.groupby(['PUFYEAR', 'CPT']).size().unstack(fill_value=0)
+    pivot = pivot[top_10_cpts] 
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    pivot.plot(kind='area', ax=ax, alpha=0.7, stacked=True, colormap='tab10')
+    ax.set_xlabel('Year', fontsize=12)
+    ax.set_ylabel('Number of Cases', fontsize=12)
+    ax.set_title('Top 10 ENT Procedures Over Time (Stacked Area)', fontsize=14, fontweight='bold')
+    ax.legend(title='CPT Code', bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('figs/top10_cpt_stacked.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    print(f"Top 10 CPTs (by total volume): {', '.join(map(str, top_10_cpts))}")
+
 def find_ent_cpt_counts(df: pd.DataFrame) -> pd.DataFrame:
     '''
     given the df for combined data, returns a df of unique codes that have been attributed to SURGSPEC ENT at least once,
@@ -74,7 +103,7 @@ def find_ent_cpt_counts(df: pd.DataFrame) -> pd.DataFrame:
 
     return counts
  
-def get_cpts(in_directory: str, cpt_out_path: str) -> set:
+def get_cpts(in_directory: str, cpt_out_path: str) -> None:
     """
     given the path to the directory of CSV files for each year, creates filtered CSV for each year and combined filterd CSV for
     all years in the given output directory. returns set of CPT codes.
@@ -108,9 +137,8 @@ def get_cpts(in_directory: str, cpt_out_path: str) -> set:
     cpt_counts = find_ent_cpt_counts(combined).sort_values(by='exact_ENT_count', ascending=False)
     cpt_counts.to_csv(cpt_out_path, index=False)
     
-    return set(cpt_counts['CPT'])
 
-def compare_cpt_files(file1path: str, file2path: str):
+def compare_cpt_files(file1path: str, file2path: str, outpath: str):
     """
     compares the 930 CPT codes attributed to ENT procedures with given list from Dr. Sina Torabi
     """
@@ -120,49 +148,36 @@ def compare_cpt_files(file1path: str, file2path: str):
     sina_set = set(sina_cpt.astype(str))
     my_cpt['AGREE'] = my_cpt['CPT'].astype(str).isin(sina_set).map({True: "TRUE", False: "FALSE"})
 
-    my_cpt.to_csv("data/CPT_comparison.csv", index=False)
+    my_cpt.to_csv(outpath, index=False)
 
 
-def get_top10_cpts(df: pd.DataFrame) -> list:
+def get_final_cpts(file1path: str, file2path: str, output_path: str) -> set:
     """
-    returns a list of the top 10 CPT codes by volume
+    compares the 930 CPT codes attributed to ENT procedures with given list from Dr. Sina Torabi and retrieves
+    common codes with >100 solely ENT cases
     """
-    return df['CPT'].value_counts().head(10).index.tolist()
+    comparison_cpt = pd.read_csv(file1path)
+    sina_cpt = pd.read_excel(file2path)
 
+    sina_cpt['CPT Code'] = standardize_cpt(sina_cpt['CPT Code'])
+    comparison_cpt['CPT'] = standardize_cpt(comparison_cpt['CPT'])
+    comparison_cpt = comparison_cpt[(comparison_cpt['ent_alone_count'] > 100) & (comparison_cpt['AGREE'] == True)]
 
-def plot_top10_cpt_stacked(df, top_10_cpts) -> None:
-    """
-    given a list of the top 10 cpt codes, creates a stacked area chart of the procedural volume each code over time
-    """
-    top_10_cpts = get_top10_cpts(df)
-    df_top = df[df['CPT'].isin(top_10_cpts)]
-    pivot = df_top.groupby(['PUFYEAR', 'CPT']).size().unstack(fill_value=0)
-    pivot = pivot[top_10_cpts] 
+    final = sina_cpt[sina_cpt['CPT Code'].isin(comparison_cpt['CPT'])]
+    final = pd.merge(
+        comparison_cpt[['CPT', 'count']],
+        sina_cpt.rename(columns={'CPT Code':'CPT'}),
+        on='CPT',
+        how='inner'
+    )
+    final.to_csv("data/final_CPT_1.csv", index=False)
+    print(f"Saved {final.shape[0]} CPT codes to {output_path}")
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    pivot.plot(kind='area', ax=ax, alpha=0.7, stacked=True, colormap='tab10')
-    ax.set_xlabel('Year', fontsize=12)
-    ax.set_ylabel('Number of Cases', fontsize=12)
-    ax.set_title('Top 10 ENT Procedures Over Time (Stacked Area)', fontsize=14, fontweight='bold')
-    ax.legend(title='CPT Code', bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('figs/top10_cpt_stacked.png', dpi=300, bbox_inches='tight')
-    plt.show()
-    print(f"Top 10 CPTs (by total volume): {', '.join(map(str, top_10_cpts))}")
+    return set(final['CPT'])
+
 
 if __name__ == "__main__":
-    get_cpts("data/nsqip_new",  "data/nsqip/ent_cpt_codes.csv")
-    compare_cpt_files("data/nsqip/ent_cpt_codes.csv", "data/sina_ENT.xlsx")
+    #get_cpts("data/nsqip_new",  "data/nsqip/ent_cpt_codes.csv")
+    compare_cpt_files("data/nsqip/ent_cpt_codes.csv", "data/sina_ENT.xlsx", "data/CPT_comparison.csv")    
+    get_final_cpts("data/CPT_comparison.csv", "data/sina_ENT.xlsx", "data/final_CPT_1.csv")
     
-    df = pd.read_csv("data/nsqip/ent_cpt_codes.csv")
-
-    counts = df['count']
-    mean_count = counts.mean()
-    median_count = counts.median()
-    num_below_10 = df[df['count'] < 10].shape[0]
-
-    print(f"total: {df.shape[0]}")
-    print(f"Mean count: {mean_count:.2f}")
-    print(f"Median count: {median_count}")
-    print(f"Number of CPT codes with count < 10: {num_below_10}")
