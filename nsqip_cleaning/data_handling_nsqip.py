@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import glob
 import os
 from pathlib import Path
-from cpt_codes import get_cpts
+from cpt_codes import get_cpts, get_final_cpts
 
 _RACE_KEYWORDS = {
     'White':                              'White',
@@ -140,7 +140,7 @@ def build_combined_filtered(in_directory: str, out_directory: str, out_path: str
     os.makedirs(out_directory, exist_ok=True)
     files = sorted(glob.iglob(os.path.join(in_directory, "*.csv")))
 
-    print("\nPass 2: filtering and saving...")
+    print("/nPass 2: filtering and saving...")
     frames = []
     for file_path in files:
         year = Path(file_path).stem
@@ -166,13 +166,17 @@ def firstrun(SAV_IN_DIR, CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, CPT_OUT) -> pd
     """
     run either on first run or if you need to reset everything, need SAV files for each year with the correct variables kept.
     """
-    print("\n=== Step 1: SAV → CSV ===")
-    sav_to_csv(SAV_IN_DIR, CSV_DIR)
+    #print("/n=== Step 1: SAV → CSV ===")
+    #sav_to_csv(SAV_IN_DIR, CSV_DIR)
 
-    print("\n=== Step 2: Getting CPT codes ===")
-    cpt_codes = get_cpts(CSV_DIR, CPT_OUT)
+    #print("/n=== Step 2: Getting CPT codes ===")
+    #cpt_codes = get_cpts(CSV_DIR, CPT_OUT)
+    #cpt_codes = get_final_cpts("data/CPT_comparison.csv", "data/sina_ent.xlsx", "data/final_CPT_1.csv")
 
-    print("\n=== Step 3: Build filtered combined CSV ===")
+    cpt_codes = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")['CPT']
+    cpt_codes = standardize_cpt(cpt_codes)
+    
+    print("/n=== Step 3: Build filtered combined CSV ===")
     df = build_combined_filtered(CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, cpt_codes)
     return df
  
@@ -183,15 +187,10 @@ def main():
     COMBINED_OUT     = "data/nsqip/combined_filtered.csv"
     CPT_OUT          = "data/nsqip/ent_cpt_codes.csv"
     
-    #df = firstrun(SAV_IN_DIR, CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, CPT_OUT)
+    df = firstrun(SAV_IN_DIR, CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, CPT_OUT)
 
-    df2 = pd.read_csv(COMBINED_OUT)
+    #df2 = pd.read_csv(COMBINED_OUT)
 
-    print(df2['RACE'].unique())
-    print(df2['RACE_NEW'].unique())
-    print(df2['ETHNICITY_HISPANIC'].unique())
-
-    print(df2.shape)
 
 if __name__ == "__main__":
     main()

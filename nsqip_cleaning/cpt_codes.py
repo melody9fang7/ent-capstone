@@ -103,7 +103,7 @@ def find_ent_cpt_counts(df: pd.DataFrame) -> pd.DataFrame:
 
     return counts
  
-def get_cpts(in_directory: str, cpt_out_path: str) -> None:
+def get_cpts(in_directory: str, cpt_out_path: str) -> pd.DataFrame:
     """
     given the path to the directory of CSV files for each year, creates filtered CSV for each year and combined filterd CSV for
     all years in the given output directory. returns set of CPT codes.
@@ -137,6 +137,7 @@ def get_cpts(in_directory: str, cpt_out_path: str) -> None:
     cpt_counts = find_ent_cpt_counts(combined).sort_values(by='exact_ENT_count', ascending=False)
     cpt_counts.to_csv(cpt_out_path, index=False)
     
+    return cpt_counts
 
 def compare_cpt_files(file1path: str, file2path: str, outpath: str):
     """
@@ -175,9 +176,81 @@ def get_final_cpts(file1path: str, file2path: str, output_path: str) -> set:
 
     return set(final['CPT'])
 
+def find_cpts(in_directory: str, cpts: list):
+    files = sorted(glob.iglob(os.path.join(in_directory, "*.csv")))
+    frames = []
+    print("step 1: concatenating")
+    cols = ['CPT'] + [f'OTHERCPT{i}' for i in range(1, 11)]
+
+    for file_path in files:
+        df = pd.read_csv(file_path, low_memory=False, usecols=cols)
+        df['CPT'] = standardize_cpt(df['CPT'])
+        for col in cols:
+            df[col] = standardize_cpt(df[col])
+        frames.append(df)
+
+    combined = pd.concat(frames, ignore_index=True)
+
+    print("step 2: looking")
+
+    
+    result_rows = []
+
+    for cpt in cpts:
+        print(f"looking for {cpt}")
+
+        row = {'CPT': cpt}
+
+        # Check presence in each column
+        found_primary = (combined['CPT'] == cpt).any()
+        row['found_in_CPT'] = found_primary
+
+        for i in range(1, 11):
+            col = f'OTHERCPT{i}'
+            row[f'found_in_{col}'] = (combined[col] == cpt).any()
+
+        # NEW LOGIC
+        if not found_primary:
+            # rows where CPT appears in any OTHERCPT column
+            mask = False
+            for i in range(1, 11):
+                mask |= (combined[f'OTHERCPT{i}'] == cpt)
+
+            subset = combined[mask]
+
+            # get top 3 primary CPTs in those rows
+            top3 = (
+                subset['CPT']
+                .value_counts()
+                .head(3)
+                .index
+                .tolist()
+            )
+
+            # store results (pad if fewer than 3)
+            for idx in range(3):
+                row[f'top_primary_{idx+1}'] = top3[idx] if idx < len(top3) else None
+        else:
+            # if it *is* found as primary, leave blank
+            row['top_primary_1'] = None
+            row['top_primary_2'] = None
+            row['top_primary_3'] = None
+
+        result_rows.append(row)
+
+    found_df = pd.DataFrame(result_rows)
+
+    # save to CSV
+    found_df.to_csv("cpt_lookup_results.csv", index=False)
+
+    return found_df
+        
+
+
 
 if __name__ == "__main__":
     #get_cpts("data/nsqip_new",  "data/nsqip/ent_cpt_codes.csv")
-    compare_cpt_files("data/nsqip/ent_cpt_codes.csv", "data/sina_ENT.xlsx", "data/CPT_comparison.csv")    
-    get_final_cpts("data/CPT_comparison.csv", "data/sina_ENT.xlsx", "data/final_CPT_1.csv")
-    
+    #compare_cpt_files("data/nsqip/ent_cpt_codes.csv", "data/sina_ENT.xlsx", "data/CPT_comparison.csv")    
+    #get_final_cpts("data/CPT_comparison.csv", "data/sina_ENT.xlsx", "data/final_CPT_1.csv")
+    df = pd.read_excel("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/sina_ENT.xlsx")
+    find_cpts("data/nsqip_new", list(df["CPT Code"]))
