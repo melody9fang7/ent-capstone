@@ -1,7 +1,8 @@
 import pandas as pd
 import glob
 import os
-
+import csv
+from collections import defaultdict
 # This is kinda funky to describe but within this folder you should have:
 #
 #   1. All the CSVs for 2009 onwards for MNPB Surgery (name as MNPB_YEAR)
@@ -159,5 +160,117 @@ def process_all_years():
         print("No data found")
         return None
 
+
+def get_code_range(codes):
+    """Get min and max for a list of codes."""
+    if not codes:
+        return None    
+    codes_sorted = sorted(codes)
+    min_code = codes_sorted[0]
+    max_code = codes_sorted[-1]
+    
+    return (min_code, max_code)
+
+def clean_hcpcs_code(code):
+    """Clean HCPCS code by removing decimal points and extra spaces."""
+    if not code or code.strip() == '':
+        return None
+    # Remove decimal points and convert to string
+    code = str(code).strip()
+    code = code.replace('.0', '').replace('.', '')
+    return code
+
+def find_ranges_by_description(csv_filename):
+    """Find HCPCS ranges for each non-empty description."""
+    
+    description_data = defaultdict(set)
+    
+    # Read the CSV file
+    with open(csv_filename, 'r') as file:
+        reader = csv.DictReader(file)
+        
+        for row in reader:
+            description = row['DESCRIPTION'].strip()
+            hcpcs = clean_hcpcs_code(row['HCPCS'])
+            
+            # Only process if description is not empty and HCPCS is valid
+            if description and hcpcs:
+                description_data[description].add(hcpcs)
+    
+    # Get range for each description
+    ranges_by_description = {}
+    for description, codes in description_data.items():
+        ranges_by_description[description] = get_code_range(list(codes))
+    
+    return ranges_by_description
+
+
+def fill_missing_descriptions(csv_filename, output_filename):
+    """Fill in empty descriptions based on HCPCS codes."""
+    
+    hcpcs_to_desc_count = defaultdict(lambda: defaultdict(int))
+    
+    with open(csv_filename, 'r') as file:
+        reader = csv.DictReader(file)
+        rows = list(reader)
+        
+        for row in rows:
+            description = row['DESCRIPTION'].strip()
+            hcpcs = clean_hcpcs_code(row['HCPCS'])
+            
+            if description and hcpcs:
+                hcpcs_to_desc_count[hcpcs][description] += 1
+    
+    hcpcs_to_desc = {}
+    for hcpcs, desc_counts in hcpcs_to_desc_count.items():
+        most_common_desc = max(desc_counts.items(), key=lambda x: x[1])[0]
+        hcpcs_to_desc[hcpcs] = most_common_desc
+    
+    # Fill in missing descriptions
+    filled_count = 0
+    for row in rows:
+        if not row['DESCRIPTION'].strip():  # Empty description
+            hcpcs = clean_hcpcs_code(row['HCPCS'])
+            if hcpcs and hcpcs in hcpcs_to_desc:
+                row['DESCRIPTION'] = hcpcs_to_desc[hcpcs]
+                filled_count += 1
+    
+    if rows:
+        with open(output_filename, 'w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+    
+    return filled_count
+
+def clean_hcpcs(code):
+    """Remove decimal point and anything after it."""
+    if not code:
+        return ''
+    return str(code).strip().split('.')[0]
+
+
 if __name__ == "__main__":
-    master_data = process_all_years()
+    #master_data = process_all_years()
+    #csv_file = "mnpb/MNPB_ALL_YEARS.csv"  # change this to your filename
+    #output_file = "MNPB_clean.csv"
+    
+    #try:
+        #filled = fill_missing_descriptions(csv_file, output_file)        
+        #ranges = find_ranges_by_description(output_file)
+        #pass # uncomment above if running on your own
+    #except Exception as e:
+    #    print(f"An error occurred: {e}")
+
+    input_file = "MNPB_clean.csv"
+    output_file = "MNPB_CLEAN.csv"
+
+    with open(input_file, 'r') as infile, open(output_file, 'w', newline='') as outfile:
+        reader = csv.DictReader(infile)
+        writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames)
+        writer.writeheader()
+        
+        for row in reader:
+            row['HCPCS'] = clean_hcpcs(row['HCPCS'])
+            writer.writerow(row)
+
