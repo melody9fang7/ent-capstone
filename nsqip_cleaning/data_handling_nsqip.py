@@ -24,10 +24,21 @@ _RACE_NEW_TRUNCATION_MAP = {
     'White,Native Hawaiian or Other Pacific Islander,As': 'White,Native Hawaiian or Other Pacific Islander,Asian',
 }
 
+CPT_CATS_NSQIP = {'31360': 'Glossectomies and Laryngectomies', '31365': 'Glossectomies and Laryngectomies', '41120': 'Glossectomies and Laryngectomies',
+                  '41130': 'Glossectomies and Laryngectomies', '41135': 'Glossectomies and Laryngectomies', '41155': 'Glossectomies and Laryngectomies',
+                  '21044': 'Other Oral Cavity Resections', '40810': 'Other Oral Cavity Resections', '40816': 'Other Oral Cavity Resections',
+                  '42120': 'Other Oral Cavity Resections', '42842': 'Other Oral Cavity Resections',
+                  '38542': 'Neck Dissections', '38700': 'Neck Dissections', '38720': 'Neck Dissections', '38724': 'Neck Dissections',
+                  '42415': 'Salivary Gland Surgeries', '42420': 'Salivary Gland Surgeries', '42440': 'Salivary Gland Surgeries',
+                  '60220': 'Thyroids Surgeries', '60240': 'Thyroids Surgeries', '60252': 'Thyroids Surgeries', '60254': 'Thyroids Surgeries', 
+                  '60260': 'Thyroids Surgeries', '60270': 'Thyroids Surgeries', '60271': 'Thyroids Surgeries', 
+                  '15731': 'Miscellaneous Codes', '31591': 'Miscellaneous Codes', '42145': 'Miscellaneous Codes'
+                  }
+
 def categorize_race(val: str) -> str:
     """
-    Given a raw race string (already stripped of Hispanic info),
-    return a broad category. Comma = multiracial.
+    given a raw race string (already stripped of Hispanic info),
+    return a broad category, comma automatically maps to multiracial.
     """
     if pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'unknown', 'unknown/not reported'):
         return 'Unknown'
@@ -86,7 +97,7 @@ def standardize_race(df: pd.DataFrame) -> pd.DataFrame:
         parsed = df['RACE'].apply(parse_race)
         df['RACE_NEW'] = [r for r, _ in parsed]
         df['ETHNICITY_HISPANIC'] = pd.array([h for _, h in parsed])
-        df = df.drop(columns=['RACE'])  # ← add this
+        df = df.drop(columns=['RACE'])
     elif has_race_new:
         df['RACE_NEW'] = (
             df['RACE_NEW']
@@ -140,15 +151,18 @@ def build_combined_filtered(in_directory: str, out_directory: str, out_path: str
     os.makedirs(out_directory, exist_ok=True)
     files = sorted(glob.iglob(os.path.join(in_directory, "*.csv")))
 
-    print("/nPass 2: filtering and saving...")
     frames = []
     for file_path in files:
         year = Path(file_path).stem
         df = pd.read_csv(file_path, low_memory=False)
         df.columns = df.columns.str.upper()
-        df['PUFYEAR'] = year
+        if 'OPERYR' in df.columns:
+            df = df.rename(columns={'OPERYR': 'PUFYEAR'})
+        else:
+            df['PUFYEAR'] = year
         df['CPT'] = standardize_cpt(df['CPT'])
         df = df[df['CPT'].isin(ent_cpt_codes)]
+        df['CPT GROUP'] = df['CPT'].map(CPT_CATS_NSQIP)
         df = standardize_race(df)
         
         path = os.path.join(out_directory, f"{year}.csv")
@@ -157,6 +171,19 @@ def build_combined_filtered(in_directory: str, out_directory: str, out_path: str
         frames.append(df)
 
     combined = pd.concat(frames, ignore_index=True)
+    combined['PUFYEAR'] = pd.to_numeric(combined['PUFYEAR'], errors='coerce')
+
+    yearly_counts = (
+        combined.groupby(['CPT', 'PUFYEAR'])
+        .size()
+        .reset_index(name='count')
+    )
+
+    active_after_2010 = set(
+        yearly_counts[yearly_counts['PUFYEAR'] >= 2010]['CPT']
+    )
+
+    combined = combined[combined['CPT'].isin(active_after_2010)]
     combined.to_csv(out_path, index=False)
 
     print(f"Combined → {out_path}, shape={combined.shape}")
@@ -166,17 +193,17 @@ def firstrun(SAV_IN_DIR, CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, CPT_OUT) -> pd
     """
     run either on first run or if you need to reset everything, need SAV files for each year with the correct variables kept.
     """
-    #print("/n=== Step 1: SAV → CSV ===")
-    #sav_to_csv(SAV_IN_DIR, CSV_DIR)
+    print("=== Step 1: SAV → CSV ===")
+    sav_to_csv(SAV_IN_DIR, CSV_DIR)
 
-    #print("/n=== Step 2: Getting CPT codes ===")
-    #cpt_codes = get_cpts(CSV_DIR, CPT_OUT)
-    #cpt_codes = get_final_cpts("data/CPT_comparison.csv", "data/sina_ent.xlsx", "data/final_CPT_1.csv")
+    print("=== Step 2: Getting CPT codes ===")
+    cpt_codes = get_cpts(CSV_DIR, CPT_OUT)
+    cpt_codes = get_final_cpts("data/CPT_comparison.csv", "data/sina_ent.xlsx", "data/final_CPT_1.csv")
 
     cpt_codes = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")['CPT']
     cpt_codes = standardize_cpt(cpt_codes)
     
-    print("/n=== Step 3: Build filtered combined CSV ===")
+    print("=== Step 3: Build filtered combined CSV ===")
     df = build_combined_filtered(CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, cpt_codes)
     return df
  
