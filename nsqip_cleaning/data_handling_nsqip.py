@@ -194,13 +194,13 @@ def firstrun(SAV_IN_DIR, CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, CPT_OUT) -> pd
     run either on first run or if you need to reset everything, need SAV files for each year with the correct variables kept.
     """
     print("=== Step 1: SAV → CSV ===")
-    sav_to_csv(SAV_IN_DIR, CSV_DIR)
+    #sav_to_csv(SAV_IN_DIR, CSV_DIR)
 
     print("=== Step 2: Getting CPT codes ===")
-    cpt_codes = get_cpts(CSV_DIR, CPT_OUT)
-    cpt_codes = get_final_cpts("data/CPT_comparison.csv", "data/sina_ent.xlsx", "data/final_CPT_1.csv")
+    #cpt_codes = get_cpts(CSV_DIR, CPT_OUT)
+    #cpt_codes = get_final_cpts("data/CPT_comparison.csv", "data/sina_ent.xlsx", "data/final_CPT_1.csv")
 
-    cpt_codes = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")['CPT']
+    cpt_codes = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/nsqip/ent_cpt_codes.csv")['CPT']
     cpt_codes = standardize_cpt(cpt_codes)
     
     print("=== Step 3: Build filtered combined CSV ===")
@@ -211,7 +211,7 @@ def main():
     SAV_IN_DIR       = "data/nsqip_filtered_sav"
     CSV_DIR          = "data/nsqip_new" 
     FILTERED_CSV_DIR = "data/nsqip"
-    COMBINED_OUT     = "data/nsqip/combined_filtered.csv"
+    COMBINED_OUT     = "data/nsqip/combined_filtered_930.csv"
     CPT_OUT          = "data/nsqip/ent_cpt_codes.csv"
     
     df = firstrun(SAV_IN_DIR, CSV_DIR, FILTERED_CSV_DIR, COMBINED_OUT, CPT_OUT)

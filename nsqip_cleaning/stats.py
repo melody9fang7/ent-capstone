@@ -18,7 +18,6 @@ def filter_solo_cases(data: pd.DataFrame) -> pd.DataFrame:
 def ttest_optime_by_cpt(data: pd.DataFrame, reference_csv: str, alpha: float = 0.05) -> pd.DataFrame:
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT']) 
-    print(ref.columns)
     ref = ref.set_index('CPT')['Intra Time']
 
     solo = filter_solo_cases(data).dropna(subset=['OPTIME'])
@@ -97,16 +96,18 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
     n_groups = len(group_order)
     n_cols = 2
     n_rows = -(-n_groups // n_cols)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, n_rows * 6))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(22, n_rows * 7))
     axes = axes.flatten()
 
     sig_lookup = {}
     diff_lookup = {}
+    n_lookup = {}
     if results_df is not None:
         rdf = results_df.copy()
         rdf['CPT'] = standardize_cpt(rdf['CPT'])
         sig_lookup  = rdf.set_index('CPT')['significant_bonferroni'].to_dict()
         diff_lookup = rdf.set_index('CPT')['mean_diff'].to_dict()
+        n_lookup = rdf.set_index('CPT')['n'].to_dict()
 
     for ax_idx, group_name in enumerate(group_order):
         ax = axes[ax_idx]
@@ -156,12 +157,14 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
                 )
 
         x_labels = []
-        for cpt in chunk:
+
+        for cpt_idx, cpt in enumerate(chunk):
             star = '*' if sig_lookup.get(cpt, False) else ''
-            x_labels.append(f'{cpt}{star}')
+            x_labels.append(f'{cpt}{star}\nN = {n_lookup.get(cpt, False)}')
+
         ax.set_xticklabels(x_labels, fontsize=9)
 
-        ax.set_title(f'Group: {group_name}', fontsize=10, fontweight='bold')
+        ax.set_title(f'Group: {group_name}', fontsize=14, fontweight='bold')
         ax.set_ylabel('Operative Time (min)', fontsize=10)
         ax.set_xlabel('CPT Code', fontsize=10)
         ax.grid(True, alpha=0.3, axis='y')
@@ -183,9 +186,8 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
     plt.tight_layout(rect=[0, 0.04, 1, 0.95])
 
     fig.suptitle(
-        'Operative Time by CPT Code (solo cases only)\n* = significant after Bonferroni correction', fontsize=15, fontweight='bold'
+        'Operative Time by CPT Code (solo cases only)\n* = significant after Bonferroni correction', fontsize=16, fontweight='bold'
     )
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig('figs/optime_boxplots_grouped.png', dpi=300, bbox_inches='tight')
     plt.show()
 

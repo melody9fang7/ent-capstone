@@ -17,34 +17,6 @@ def standardize_cpt(series: pd.Series) -> pd.Series:
     return series.apply(_to_str)
 
 
-def get_top10_cpts(df: pd.DataFrame) -> list:
-    """
-    returns a list of the top 10 CPT codes by volume
-    """
-    return df['CPT'].value_counts().head(10).index.tolist()
-
-
-def plot_top10_cpt_stacked(df, top_10_cpts) -> None:
-    """
-    given a list of the top 10 cpt codes, creates a stacked area chart of the procedural volume each code over time
-    """
-    top_10_cpts = get_top10_cpts(df)
-    df_top = df[df['CPT'].isin(top_10_cpts)]
-    pivot = df_top.groupby(['PUFYEAR', 'CPT']).size().unstack(fill_value=0)
-    pivot = pivot[top_10_cpts] 
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    pivot.plot(kind='area', ax=ax, alpha=0.7, stacked=True, colormap='tab10')
-    ax.set_xlabel('Year', fontsize=12)
-    ax.set_ylabel('Number of Cases', fontsize=12)
-    ax.set_title('Top 10 ENT Procedures Over Time (Stacked Area)', fontsize=14, fontweight='bold')
-    ax.legend(title='CPT Code', bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('figs/top10_cpt_stacked.png', dpi=300, bbox_inches='tight')
-    plt.show()
-    print(f"Top 10 CPTs (by total volume): {', '.join(map(str, top_10_cpts))}")
-
 def find_ent_cpt_counts(df: pd.DataFrame) -> pd.DataFrame:
     '''
     given the df for combined data, returns a df of unique codes that have been attributed to SURGSPEC ENT at least once,
@@ -152,7 +124,7 @@ def compare_cpt_files(file1path: str, file2path: str, outpath: str):
     my_cpt.to_csv(outpath, index=False)
 
 
-def get_final_cpts(file1path: str, file2path: str, output_path: str) -> set:
+def get_final_cpts(file1path: str, file2path: str, file0506path: str, file22path: str, output_path: str) -> set:
     """
     compares the 930 CPT codes attributed to ENT procedures with given list from Dr. Sina Torabi and retrieves
     common codes with >100 solely ENT cases
@@ -160,10 +132,29 @@ def get_final_cpts(file1path: str, file2path: str, output_path: str) -> set:
     
     comparison_cpt = pd.read_csv(file1path)
     sina_cpt = pd.read_excel(file2path)
+    rvu0506 = pd.read_csv(file0506path, usecols=['CPT', 'WORKRVU'])
+    rvu22 = pd.read_csv(file22path)
 
     sina_cpt['CPT Code'] = standardize_cpt(sina_cpt['CPT Code'])
     comparison_cpt['CPT'] = standardize_cpt(comparison_cpt['CPT'])
+    rvu0506['CPT'] = standardize_cpt(rvu0506['CPT'])
+    rvu22['CPT'] = standardize_cpt(rvu22['CPT'])
+
     comparison_cpt = comparison_cpt[(comparison_cpt['ent_alone_count'] > 100) & (comparison_cpt['AGREE'] == True)]
+
+    rvu_0506_lookup = (
+        rvu0506[['CPT', 'WORKRVU']]
+        .dropna(subset=['CPT', 'WORKRVU'])
+        .drop_duplicates(subset=['CPT'])
+        .rename(columns={'WORKRVU': 'work_rvu_2005_2006'})
+    )
+
+    rvu_2022_lookup = (
+        rvu22[['CPT', 'WORKRVU']]
+        .dropna(subset=['CPT', 'WORKRVU'])
+        .drop_duplicates(subset=['CPT'])
+        .rename(columns={'WORKRVU': 'work_rvu_2022'})
+    )
 
     final = sina_cpt[sina_cpt['CPT Code'].isin(comparison_cpt['CPT'])]
     final = pd.merge(
@@ -172,6 +163,21 @@ def get_final_cpts(file1path: str, file2path: str, output_path: str) -> set:
         on='CPT',
         how='inner'
     )
+
+    final = pd.merge(
+        final,
+        rvu_0506_lookup,
+        on='CPT',
+        how='left'
+    )
+
+    final = pd.merge(
+        final,
+        rvu_2022_lookup,
+        on='CPT',
+        how='left'
+    )
+
     final.to_csv("data/final_CPT_1.csv", index=False)
     print(f"Saved {final.shape[0]} CPT codes to {output_path}")
 
@@ -235,12 +241,117 @@ def find_cpts(in_directory: str, cpts: list):
     found_df.to_csv("cpt_lookup_results.csv", index=False)
     return found_df
         
+def combine_hcup_nsqip(file1path: str, file2path: str, file0506path: str, file22path: str,
+                   hcuppath1: str, hcuppath2: str, final29path: str, 
+                   nsqip_dir: str, output_path: str) -> set:
 
+    sina_cpt = pd.read_excel(file2path)
+    rvu0506 = pd.read_csv(file0506path, usecols=['CPT', 'WORKRVU'])
+    rvu22 = pd.read_csv(file22path, usecols=['CPT', 'WORKRVU'])
+    hcup_codelist = pd.read_csv(hcuppath1)  # 32 HCUP codes + metadata
+    hcup_counts   = pd.read_csv(hcuppath2)  # HCUP counts for the 29 NSQIP codes
+    final29 = pd.read_csv(final29path)
 
+    for df, col in [
+        (sina_cpt, 'CPT Code'), (rvu0506, 'CPT'), (rvu22, 'CPT'),
+        (hcup_codelist, 'CPT'), (hcup_counts, 'CPT'), (final29, 'CPT')
+    ]:
+        df[col] = standardize_cpt(df[col])
+
+    # ── compute NSQIP_COUNT from yearly raw files ─────────────
+    print("counting NSQIP occurrences across yearly files...")
+    files = sorted(glob.iglob(os.path.join(nsqip_dir, "*.csv")))
+    nsqip_full = pd.concat([
+        pd.read_csv(f, low_memory=False, usecols=['CPT'])
+        for f in files
+    ], ignore_index=True)
+    nsqip_full['CPT'] = standardize_cpt(nsqip_full['CPT'])
+    nsqip_counts = (
+        nsqip_full['CPT'].value_counts()
+        .reset_index()
+    )
+    nsqip_counts.columns = ['CPT', 'NSQIP_COUNT']
+
+    # ── build union of codes ──────────────────────────────────
+    nsqip_cpts = final29[['CPT']].copy()
+    nsqip_cpts['IN_FINAL_NSQIP'] = True
+
+    hcup_cpts = hcup_codelist[['CPT']].copy()
+    hcup_cpts['IN_FINAL_HCUP'] = True
+
+    all_codes = pd.merge(nsqip_cpts, hcup_cpts, on='CPT', how='outer')
+    all_codes['IN_FINAL_NSQIP'] = all_codes['IN_FINAL_NSQIP'].fillna(False)
+    all_codes['IN_FINAL_HCUP']  = all_codes['IN_FINAL_HCUP'].fillna(False)
+    print(f"Total unique codes after union: {len(all_codes)}")
+
+    # ── metadata: hcup_codelist first, fill gaps from sina ────
+    hcup_meta_cols = [c for c in ['CPT', 'Long Desc', 'Intra Time', 'Most Recent RUC Review']
+                      if c in hcup_codelist.columns]
+    all_codes = all_codes.merge(hcup_codelist[hcup_meta_cols], on='CPT', how='left')
+
+    sina_subset = (
+        sina_cpt[['CPT Code', 'Long Desc', 'Intra Time', 'Most Recent RUC Review']]
+        .rename(columns={'CPT Code': 'CPT'})
+    )
+    all_codes = all_codes.merge(sina_subset, on='CPT', how='left', suffixes=('', '_sina'))
+    for col in ['Long Desc', 'Intra Time', 'Most Recent RUC Review']:
+        sina_col = f'{col}_sina'
+        if sina_col in all_codes.columns:
+            all_codes[col] = all_codes[col].fillna(all_codes[sina_col])
+            all_codes.drop(columns=[sina_col], inplace=True)
+
+    # ── NSQIP_COUNT ───────────────────────────────────────────
+    all_codes = all_codes.merge(nsqip_counts, on='CPT', how='left')
+    all_codes['NSQIP_COUNT'] = all_codes['NSQIP_COUNT'].fillna(0).astype(int)
+
+    # ── HCUP_COUNT: hcup_counts for NSQIP codes,
+    #               hcup_codelist for HCUP-only codes ──────────
+    hcup_count_combined = pd.concat([
+        hcup_counts[['CPT', 'HCUP_COUNT']],       # 29 NSQIP codes — takes priority
+        hcup_codelist[['CPT', 'HCUP_COUNT']]       # 32 HCUP codes — fills the rest
+    ]).drop_duplicates(subset='CPT', keep='first')
+
+    all_codes = all_codes.merge(hcup_count_combined, on='CPT', how='left')
+    all_codes['HCUP_COUNT'] = all_codes['HCUP_COUNT'].fillna(0).astype(int)
+
+    # ── RVU lookups ───────────────────────────────────────────
+    rvu_0506_lookup = (
+        rvu0506.dropna(subset=['CPT', 'WORKRVU'])
+        .drop_duplicates(subset=['CPT'])
+        .rename(columns={'WORKRVU': 'work_rvu_2005_2006'})
+    )
+    rvu_2022_lookup = (
+        rvu22.dropna(subset=['CPT', 'WORKRVU'])
+        .drop_duplicates(subset=['CPT'])
+        .rename(columns={'WORKRVU': 'work_rvu_2022'})
+    )
+    all_codes = all_codes.merge(rvu_0506_lookup, on='CPT', how='left')
+    all_codes = all_codes.merge(rvu_2022_lookup, on='CPT', how='left')
+
+    all_codes.to_csv(output_path, index=False)
+    print(f"Saved {all_codes.shape[0]} CPT codes to {output_path}")
+    print(f"In NSQIP final: {all_codes['IN_FINAL_NSQIP'].sum()}")
+    print(f"In HCUP final:  {all_codes['IN_FINAL_HCUP'].sum()}")
+    print(f"In both:        {(all_codes['IN_FINAL_NSQIP'] & all_codes['IN_FINAL_HCUP']).sum()}")
+
+    return set(all_codes['CPT'])
 
 if __name__ == "__main__":
     #get_cpts("data/nsqip_new",  "data/nsqip/ent_cpt_codes.csv")
     #compare_cpt_files("data/nsqip/ent_cpt_codes.csv", "data/sina_ENT.xlsx", "data/CPT_comparison.csv")    
-    #get_final_cpts("data/CPT_comparison.csv", "data/sina_ENT.xlsx", "data/final_CPT_1.csv")
-    df = pd.read_excel("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/sina_ENT.xlsx")
-    find_cpts("data/nsqip_new", list(df["CPT Code"]))
+    #get_final_cpts("data/CPT_comparison.csv", "data/sina_ENT.xlsx", "data/nsqip/2006.csv", "data/nsqip/2022.csv", "data/final_CPT_1.csv")
+    #df = pd.read_excel("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/sina_ENT.xlsx")
+    #find_cpts("data/nsqip_new", list(df["CPT Code"]))
+    """
+    combine_hcup_nsqip(
+        file1path="data/CPT_comparison.csv",
+        file2path="data/sina_ENT.xlsx",
+        file0506path="data/nsqip/2006.csv",
+        file22path="data/nsqip/2022.csv",
+        hcuppath1="data/table 1 HCUP.csv",
+        hcuppath2="data/hcup_counts.csv",
+        final29path="C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv",
+        nsqip_dir="data/nsqip_new",
+        output_path="data/final_CPT_FULL.csv"
+    )
+    """
