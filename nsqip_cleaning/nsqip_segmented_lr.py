@@ -10,6 +10,14 @@ MIN_RVU_CHANGE_PCT = 0.05
 YEAR_START = 2005
 YEAR_END = 2022
 
+def filter_solo_cases(df):
+    other_cols = [c for c in df.columns if c.startswith('OTHERCPT')]
+    if other_cols:
+        is_solo = df[other_cols].isnull().all(axis=1)
+        print(f"Kept {is_solo.sum():,} solo cases ({is_solo.sum()/len(df)*100:.1f}%)")
+        return df[is_solo].copy()
+    return df
+
 def load_ent_codes(filepath):
     ent_cpt_df = pd.read_csv(filepath)
     first_col = ent_cpt_df.iloc[:, 0]
@@ -28,14 +36,16 @@ def load_ent_codes(filepath):
 
 def load_optime_data(filepath):
     df = pd.read_csv(filepath)
-    print(f"Loaded operative time data: {len(df):,} rows")
+    print(f"{len(df):,} rows before filtering for solo procedures")
+    df = filter_solo_cases(df)
+    print(f"{len(df):,} rows after filtering for solo procedures")
     df['OPTIME'] = pd.to_numeric(df['OPTIME'], errors='coerce')
     df['YEAR'] = pd.to_numeric(df['PUFYEAR'], errors='coerce')
     df['CPT'] = df['CPT'].astype(str)
     df = df.dropna(subset=['OPTIME', 'YEAR'])
     return df
 
-def load_volume_data(filepath, ent_codes):
+def load_data_for_reval(filepath, ent_codes):
     df = pd.read_csv(filepath, low_memory=False)
     print(f"Loaded {len(df):,} rows")
     df['YEAR'] = pd.to_numeric(df['PUFYEAR'], errors='coerce')
@@ -52,7 +62,11 @@ def load_volume_data(filepath, ent_codes):
 
 def detect_revaluations_from_data(df_ent, min_change_pct=MIN_RVU_CHANGE_PCT):
     """
-    Detect revaluation years AND direction from data
+    Detect revaluation years AND direction from data.
+    Parameters:
+        df_ent: DataFrame with CPT_NUM, YEAR, WORKRVU columns
+        min_change_pct: minimum cumulative percent change to flag as revaluation
+    
     Returns:
         reval_map: {cpt: [years]}
         direction_map: {cpt: {year: 'increase' or 'decrease'}}
@@ -66,37 +80,56 @@ def detect_revaluations_from_data(df_ent, min_change_pct=MIN_RVU_CHANGE_PCT):
     magnitude_map = {}
     
     for cpt in yearly_rvu['CPT_NUM'].unique():
-        cpt_data = yearly_rvu[yearly_rvu['CPT_NUM'] == cpt].copy()
+        cpt_data = yearly_rvu[yearly_rvu['CPT_NUM'] == cpt].sort_values('YEAR').copy()
         
         if len(cpt_data) <= 1:
             continue
         
-        changes = []
         change_years = []
         change_directions = {}
         change_magnitudes = {}
         
-        prev_rvu = cpt_data.iloc[0]['WORKRVU']
+        # Establish baseline from first available year
+        baseline_rvu = cpt_data.iloc[0]['WORKRVU']
+        baseline_year = int(cpt_data.iloc[0]['YEAR'])
+        prev_rvu = baseline_rvu
+        
+        # Track the last confirmed revaluation RVU separately
+        last_reval_rvu = baseline_rvu
+        last_reval_year = baseline_year
         
         for _, row in cpt_data.iterrows():
             current_rvu = row['WORKRVU']
-            year = int(row['YEAR'])
-            pct_change = (current_rvu - prev_rvu) / prev_rvu * 100
+            current_year = int(row['YEAR'])
             
-            if abs(pct_change) >= min_change_pct:
-                change_years.append(year)
-                direction = 'increase' if current_rvu > prev_rvu else 'decrease'
-                change_directions[year] = direction
-                change_magnitudes[year] = abs(pct_change)
-                changes.append({'year': year, 'direction': direction, 'pct_change': pct_change})
-                prev_rvu = current_rvu
+            # Skip the baseline year itself
+            if current_year == baseline_year:
+                continue
+            
+            # Calculate change from LAST REVALUATION EVENT (not from previous year)
+            if last_reval_rvu > 0:
+                pct_change_from_reval = ((current_rvu - last_reval_rvu) / last_reval_rvu) * 100
             else:
                 prev_rvu = current_rvu
+                continue
+            
+            if abs(pct_change_from_reval) >= min_change_pct and (current_year - last_reval_year) >= 1:
+                change_years.append(current_year)
+                direction = 'increase' if current_rvu > last_reval_rvu else 'decrease'
+                change_directions[current_year] = direction
+                change_magnitudes[current_year] = abs(pct_change_from_reval)
+                
+                # Update revaluation baseline to this new level
+                last_reval_rvu = current_rvu
+                last_reval_year = current_year
+            
+            prev_rvu = current_rvu
         
         if change_years:
-            reval_map[str(cpt)] = change_years
-            direction_map[str(cpt)] = change_directions
-            magnitude_map[str(cpt)] = change_magnitudes
+            # Ensure consistent string key for matching with other dataframes
+            reval_map[str(int(cpt))] = change_years
+            direction_map[str(int(cpt))] = change_directions
+            magnitude_map[str(int(cpt))] = change_magnitudes
     
     return reval_map, direction_map, magnitude_map
 
@@ -250,9 +283,12 @@ def plot_results(data_dict, results_df, reval_map, direction_map, outcome_name, 
     if not sig_cpts:
         sig_cpts = list(reval_map.keys())[:9]
     
-    cpts_to_plot = sig_cpts[:9]
-    n_cols, n_rows = 3, 3
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 12))
+    cpts_to_plot = sig_cpts
+    n_plots = len(cpts_to_plot)
+    n_cols = 3
+    n_rows = (n_plots + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
     axes = axes.flatten()
     
     for idx, cpt in enumerate(cpts_to_plot):
@@ -301,10 +337,81 @@ def plot_results(data_dict, results_df, reval_map, direction_map, outcome_name, 
     for idx in range(len(cpts_to_plot), len(axes)):
         axes[idx].set_visible(False)
     
-    plt.suptitle(f'Segmented Regression: {outcome_name}\n(Green = wRVU Increase, Red = wRVU Decrease)', fontsize=14)
+    plt.suptitle(f'Segmented Regression: {outcome_name}\n', fontsize=14)
     plt.tight_layout()
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.show()
+
+def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitude_map, outcome_name, ylabel, filename, cpt_list):
+    cpts_to_plot = [cpt for cpt in cpt_list if cpt in data_dict]
+    
+    if len(cpts_to_plot) == 0:
+        print(f"None of the specified CPTs found in data: {cpt_list}")
+        return
+    
+    n_plots = len(cpts_to_plot)
+    n_cols = 2
+    n_rows = (n_plots + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 5 * n_rows))
+    axes = axes.flatten()
+    
+    for idx, cpt in enumerate(cpts_to_plot):
+        ax = axes[idx]
+        data = data_dict.get(cpt)
+        if data is None or len(data) < 6:
+            ax.text(0.5, 0.5, f'CPT {cpt}\nInsufficient data', ha='center', va='center')
+            ax.set_title(f'CPT {cpt}')
+            continue
+        
+        break_years = reval_map.get(cpt, [])
+        yearly_means = data.groupby('YEAR')['VALUE'].mean()
+        
+        # Plot data FIRST
+        ax.plot(yearly_means.index, yearly_means.values, 'o-', color='steelblue', 
+               alpha=0.7, markersize=4, linewidth=1.5, label='Observed')
+        
+        # Fit and plot segmented regression
+        try:
+            model, slopes, _ = fit_segmented(data, break_years, 'VALUE')
+            years_range = np.arange(data['YEAR'].min(), data['YEAR'].max() + 1)
+            X_pred = pd.DataFrame({'YEAR': years_range})
+            X_pred['const'] = 1
+            for by in break_years:
+                X_pred[f'TIME_SINCE_{by}'] = np.maximum(0, years_range - by)
+            predictions = model.predict(X_pred)
+            ax.plot(years_range, predictions, 'r-', linewidth=2, label='Segmented')
+        except:
+            pass
+        
+        # breakpoint lines and annotations (after data is plotted, so ylim is correct)
+        y_min, y_max = ax.get_ylim()
+        for i, by in enumerate(break_years):
+            color = get_line_color(cpt, by, direction_map)
+            ax.axvline(x=by, color=color, linestyle='--', linewidth=1.5, alpha=0.7)
+        
+        row = results_df[results_df['CPT'] == cpt] if len(results_df) > 0 else None
+        if row is not None and len(row) > 0:
+            r2 = row.iloc[0]['R2_Segmented']
+            f_p = row.iloc[0]['F_Pvalue']
+            sig = '*' if row.iloc[0]['Breakpoints_Significant'] else ''
+            ax.text(0.98, 0.98, f'R²={r2:.3f}\np={f_p:.4f}{sig}', transform=ax.transAxes,
+                   va='top', ha='right', fontsize=8, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        ax.set_xlabel('Year')
+        ax.set_ylabel(ylabel)
+        ax.set_title(f'CPT {cpt} (n={len(data):,})')
+        ax.legend(loc='upper left', fontsize=7)
+        ax.grid(True, alpha=0.3)
+    
+    for idx in range(len(cpts_to_plot), len(axes)):
+        axes[idx].set_visible(False)
+    
+    plt.suptitle(f'Segmented Regression: {outcome_name} (Selected CPTs)\n(Green = wRVU Increase, Red = wRVU Decrease)', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.show()
+    print(f"Saved: {filename}")
 
 # MAIN
 
@@ -314,7 +421,7 @@ def main():
     # Load data
     df_optime = load_optime_data('nsqip_cleaning/combined_filtered_29.csv')
     ent_codes = load_ent_codes('nsqip_cleaning/ENT_CPT_CODES.csv')
-    df_volume = load_volume_data('nsqip_cleaning/combined_filtered.csv', ent_codes)
+    df_volume = load_data_for_reval('nsqip_cleaning/combined_filtered.csv', ent_codes)
         
     reval_map, direction_map, magnitude_map = detect_revaluations_from_data(df_volume)
     
@@ -349,6 +456,19 @@ def main():
         plot_results(optime_data_dict, optime_df, reval_map, direction_map,
                     "Operative Time Response", "Operative Time (minutes)", "segmented_optime_dynamic.png")
         optime_df.to_csv('optime_segmented_results_dynamic.csv', index=False)
+
+    target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
+    plot_specific_cpts(
+        optime_data_dict, 
+        optime_df, 
+        reval_map, 
+        direction_map,
+        magnitude_map,
+        "Operative Time Response", 
+        "Operative Time (minutes)", 
+        "segmented_optime_selected_cpts.png",
+        target_cpts
+    )
     
     # FINAL SUMMARY
     print("FINAL SUMMARY")
