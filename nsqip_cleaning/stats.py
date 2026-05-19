@@ -188,30 +188,159 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
     fig.suptitle(
         'Operative Time by CPT Code (solo cases only)\n* = significant after Bonferroni correction', fontsize=16, fontweight='bold'
     )
-    plt.savefig('figs/optime_boxplots_grouped.png', dpi=300, bbox_inches='tight')
+    plt.savefig('finalfigs/optime_boxplots_cptgrouped.png', dpi=300, bbox_inches='tight')
+    plt.savefig('finalfigs/optime_boxplots_cptgrouped.svg',  bbox_inches='tight')
+    plt.show()
+
+def plot_optime_boxplots_poster(
+    data: pd.DataFrame,
+    reference_csv: str,
+    results_df: pd.DataFrame,
+    top_n: int = 5,
+    figsize: tuple = (6, 8)   # tall and narrow
+):
+    ref = pd.read_csv(reference_csv)
+    ref['CPT'] = standardize_cpt(ref['CPT'])
+    ref = ref.set_index('CPT')['Intra Time']
+
+    solo = filter_solo_cases(data).dropna(subset=['OPTIME'])
+    solo['CPT'] = standardize_cpt(solo['CPT'])
+
+    rdf = results_df.copy()
+    rdf['CPT'] = standardize_cpt(rdf['CPT'])
+    rdf['abs_diff'] = rdf['mean_diff'].abs()
+    sig_lookup  = rdf.set_index('CPT')['significant_bonferroni'].to_dict()
+    diff_lookup = rdf.set_index('CPT')['mean_diff'].to_dict()
+    n_lookup    = rdf.set_index('CPT')['n'].to_dict()
+
+    top_cpts = (
+        rdf[rdf['significant_bonferroni']]
+        .sort_values('abs_diff', ascending=False)
+        .head(top_n)['CPT']
+        .tolist()
+    )
+
+    solo = solo[solo['CPT'].isin(top_cpts)]
+
+    group_lookup = (
+        solo[['CPT', 'CPT GROUP']]
+        .drop_duplicates()
+        .set_index('CPT')['CPT GROUP']
+        .to_dict()
+    )
+
+    # shorten group names so they fit
+    group_short = {
+        'Glossectomies and Laryngectomies': 'Gloss. & Laryngect.',
+        'Other Oral Cavity Resections': 'Oral Cavity',
+        'Thyroid Surgeries': 'Thyroid',
+        'Neck Dissections': 'Neck Dissection',
+        'Salivary Gland Surgeries': 'Salivary Gland',
+        'Miscellaneous Codes': 'Misc.',
+    }
+
+    chunk = sorted(top_cpts, key=lambda c: abs(diff_lookup.get(c, 0)), reverse=True)
+    plot_data = [solo[solo['CPT'] == cpt]['OPTIME'].values for cpt in chunk]
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    bp = ax.boxplot(
+        plot_data,
+        patch_artist=True,
+        showmeans=True,
+        showfliers=False,
+        vert=True,
+        meanprops=dict(marker='^', markerfacecolor='green',
+                       markeredgecolor='green', markersize=7),
+        medianprops=dict(color='orange', linewidth=2),
+    )
+
+    for patch in bp['boxes']:
+        patch.set_facecolor('steelblue')
+        patch.set_alpha(0.5)
+
+    # clip y axis at 95th percentile across all plotted data to reduce whitespace
+    ax.autoscale()
+    y_min, y_max = ax.get_ylim()
+    y_range = y_max - y_min
+
+    for cpt_idx, cpt in enumerate(chunk):
+        x_pos = cpt_idx + 1
+
+        if cpt in ref.index:
+            ax.plot(
+                [x_pos - 0.4, x_pos + 0.4], [ref[cpt], ref[cpt]],
+                color='red', linewidth=2, linestyle='--', zorder=5
+            )
+
+        if cpt in diff_lookup:
+            diff = diff_lookup[cpt]
+            sign = '+' if diff >= 0 else ''
+            ax.annotate(
+                f'{sign}{diff:.0f}m',
+                xy=(x_pos, y_min + y_range * 0.02),
+                ha='center', va='bottom', fontsize=8,
+                color='darkgreen' if diff > 0 else 'firebrick',
+                annotation_clip=False
+            )
+
+    # compact x labels: CPT + star, n, short group — each on own line
+    x_labels = []
+    for cpt in chunk:
+        star = '*' if sig_lookup.get(cpt, False) else ''
+        group = group_short.get(group_lookup.get(cpt, ''), group_lookup.get(cpt, ''))
+        n = n_lookup.get(cpt, '')
+        x_labels.append(f'{cpt}{star}\nn={n}\n{group}')
+
+    ax.set_xticklabels(x_labels, fontsize=7.5)
+    ax.set_ylabel('Operative Time (min)', fontsize=9)
+    ax.set_xlabel('')
+    ax.set_title(
+        'Top 5 CPTs:\nOperative Time vs.\nRUC Reference',
+        fontsize=10, fontweight='bold'
+    )
+    ax.grid(True, alpha=0.3, axis='y')
+
+    legend_elements = [
+        Line2D([0], [0], color='red', linewidth=2, linestyle='--', label='RUC mean'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='green',
+               markersize=8, label='Observed mean'),
+        Line2D([0], [0], color='orange', linewidth=2, label='Median'),
+        Patch(facecolor='steelblue', alpha=0.5, label='IQR'),
+    ]
+    fig.legend(handles=legend_elements, fontsize=7, loc='lower center',
+               ncol=2, bbox_to_anchor=(0.5, 0.0), borderpad=0.4)
+
+    plt.tight_layout(rect=[0, 0.06, 1, 1])
+    plt.savefig('finalfigs/optime_boxplots_poster.png', dpi=300, bbox_inches='tight')
+    plt.savefig('finalfigs/optime_boxplots_poster.svg', bbox_inches='tight')
     plt.show()
 
 def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
-    """
-    linear regression of average operative time over time, split into subplots by CPT chunks.
-    each subplot shows regression lines for up to 5 CPT codes.
-    """
     solo = filter_solo_cases(data).dropna(subset=['OPTIME', 'PUFYEAR'])
     solo['CPT'] = standardize_cpt(solo['CPT'])
 
-    cpts = sorted(solo['CPT'].unique())
-    chunks = [cpts[i:i+5] for i in range(0, len(cpts), 5)]
+    group_order = sorted(solo['CPT GROUP'].dropna().unique())
+    cpt_order = (
+        solo[['CPT', 'CPT GROUP']]
+        .drop_duplicates()
+        .sort_values(['CPT GROUP', 'CPT'])
+    )
 
     n_cols = 2
-    n_rows = -(-len(chunks) // n_cols)
+    n_rows = -(-len(group_order) // n_cols)
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, n_rows * 5))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, n_rows * 5))
     axes = axes.flatten()
 
-    for ax_idx, chunk in enumerate(chunks):
+    for ax_idx, group_name in enumerate(group_order):
         ax = axes[ax_idx]
+        color_cycle = plt.cm.tab10.colors
 
-        for cpt in chunk:
+        chunk = cpt_order[cpt_order['CPT GROUP'] == group_name]['CPT'].tolist()
+
+        for color_idx, cpt in enumerate(chunk):
+            color = color_cycle[color_idx % len(color_cycle)]
             df_cpt = solo[solo['CPT'] == cpt]
 
             df_grouped = (
@@ -235,37 +364,53 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
 
             print(f"CPT {cpt}: slope={model.coef_[0]:.2f} min/year, R²={r_squared:.2f}")
 
+            # actual data: dots connected by solid line
+            ax.plot(
+                df_grouped['PUFYEAR'],
+                y,
+                color=color,
+                linewidth=1.5,
+                marker='o',
+                markersize=4,
+                alpha=0.7,
+                zorder=2
+            )
+
+            # regression: dashed line + label
             ax.plot(
                 df_grouped['PUFYEAR'],
                 y_pred,
-                label=f'{cpt} (slope={model.coef_[0]:.2f})',
-                linewidth=2
+                color=color,
+                linewidth=2,
+                linestyle='--',
+                label=f'{cpt} (slope={model.coef_[0]:.2f}, R²={r_squared:.2f})',
+                zorder=3
             )
 
-        ax.set_title(f"CPT Codes: {', '.join(map(str, chunk))}", fontsize=8)
-        ax.set_xlabel('Year', fontsize=6)
-        ax.set_ylabel('Avg Operative Time (min)', fontsize=6)
-        ax.legend(fontsize=6)
+        ax.set_title(f'Group: {group_name}', fontsize=10, fontweight='bold')
+        ax.set_xlabel('Year', fontsize=9)
+        ax.set_ylabel('Avg Operative Time (min)', fontsize=9)
+        ax.legend(fontsize=7, loc='upper left')
         ax.grid(True, alpha=0.3)
 
-    # hide unused axes
-    for ax in axes[len(chunks):]:
+    for ax in axes[len(group_order):]:
         ax.set_visible(False)
 
     fig.suptitle(
-        'Trend of Average Operative Time by CPT Code (solo cases)/nLinear regression per CPT',
+        'Trend of Average Operative Time by CPT Code (solo cases)\nDashed = linear regression, Solid = observed mean',
         fontsize=13
     )
 
     plt.tight_layout()
-    plt.savefig('figs/optime_linreg_subplots.png', dpi=300, bbox_inches='tight')
+    plt.savefig('finalfigs/optime_linreg_subplots_cptgrouped.png', dpi=300, bbox_inches='tight')
+    plt.savefig('finalfigs/optime_linreg_subplots_cptgrouped.svg',  bbox_inches='tight')
     plt.show()
 
 def main():
     df = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/nsqip/combined_filtered.csv")
     resultsdf = ttest_optime_by_cpt(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")
     #plot_optime_linreg(df, 0)
-    plot_optime_boxplots(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
-
+    #plot_optime_boxplots(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
+    plot_optime_boxplots_poster(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
 if __name__ == "__main__":
     main()
