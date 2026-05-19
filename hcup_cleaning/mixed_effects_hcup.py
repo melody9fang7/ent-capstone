@@ -128,10 +128,13 @@ def plot_mixed_model(df, result, type = "simple"):
 
     for ax, cpt in zip(axes, cpts):
         sub = df[df["CPT1"] == cpt].copy() # sub data for this cpt code
+
         yearly = (sub.groupby("AYEAR")["ORTIME"].mean().reset_index()) # yearly mean ORTIME
+
         reval_year = int(sub["Most Recent RUC Review"].iloc[0]) # reval year for this cpt code
 
         years = np.arange(2008, 2018) # range of years to predict for (2008-2017)
+
         pred_df = pd.DataFrame({"AYEAR": years, "YEAR_CENTERED": years - reval_year,
                                 "POST_REVAL": (years >= reval_year).astype(int), "CPT1": cpt}) # dataframe for prediction line
 
