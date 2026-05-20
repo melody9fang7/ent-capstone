@@ -197,7 +197,7 @@ def plot_optime_boxplots_poster(
     reference_csv: str,
     results_df: pd.DataFrame,
     top_n: int = 5,
-    figsize: tuple = (6, 8)   # tall and narrow
+    figsize: tuple = (8, 5)
 ):
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT'])
