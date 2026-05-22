@@ -6,10 +6,11 @@ def standardize_cpt(series: pd.Series) -> pd.Series:
     forces formatting of cpt codes
     """
     def _to_str(x):
+        if pd.isna(x):
+            return None
         if isinstance(x, float) and x.is_integer():
             return str(int(x))
-        return str(x)
- 
+        return str(x).strip()
     return series.apply(_to_str)
 
 def load_cpt_list(file: str) -> set:
@@ -21,7 +22,7 @@ def load_cpt_list(file: str) -> set:
     df["CPT Code"] = standardize_cpt(df["CPT Code"])
 
     codes = set(df["CPT Code"])
-    codes.discard("nan")
+    #codes.discard("nan")
 
     return codes
 
@@ -54,7 +55,7 @@ def filter_chunk(chunk: pd.DataFrame, cpt_codes: set, drop_cols: list) -> pd.Dat
     chunk = chunk[chunk["NCPT"] == 1]
 
     chunk["CPT1"] = standardize_cpt(chunk["CPT1"])
-    chunk = chunk[chunk["CPT1"] != "nan"] # filter out any "nan" that came from standardization
+    #chunk = chunk[chunk["CPT1"] != "nan"] # filter out any "nan" that came from standardization
 
     # keep rows where CPT1 (primary procedure) is in the ent cpt code list
     chunk = chunk[chunk["CPT1"].isin(cpt_codes)]
@@ -118,7 +119,7 @@ def save_cpt_counts(input_file, output_file):
     df["CPT1"] = standardize_cpt(df["CPT1"])
 
     # remove nan strings
-    df = df[df["CPT1"] != "nan"]
+    #df = df[df["CPT1"] != "nan"]
 
     # count CPT1 values
     count_df = (df["CPT1"].value_counts().reset_index())
