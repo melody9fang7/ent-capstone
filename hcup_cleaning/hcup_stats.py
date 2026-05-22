@@ -236,7 +236,7 @@ def plot_optime_boxplots_poster(
     data: pd.DataFrame,
     reference_csv: str,
     results_df: pd.DataFrame,
-    top_n: int = 5,
+    top_n: int = 2,
     figsize: tuple = (8, 5)
 ):
     ref = pd.read_csv(reference_csv)
@@ -453,8 +453,8 @@ def main():
     resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv")
     #plot_optime_boxplots(df, "filtered_sina2.csv", resultsdf)
     #plot_volume(df_volume)
-    #plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
-    plot_optime_linreg(df)
+    plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
+    #plot_optime_linreg(df)
 
 if __name__ == "__main__":
     main()
