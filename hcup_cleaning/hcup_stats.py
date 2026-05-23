@@ -8,30 +8,14 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 group_map = {
-    # Diagnostic procedures
-    '31575': 'Diagnostic Procedures',
-    '31231': 'Diagnostic Procedures',
-    '43200': 'Diagnostic Procedures',
-    '10021': 'Diagnostic Procedures',
-    '31579': 'Diagnostic Procedures',
-
-    # In-office procedures
-    '69210': 'In-Office Procedures',
-    '21320': 'In-Office Procedures',
-    '69433': 'In-Office Procedures',
-    '21315': 'In-Office Procedures',
-    '69220': 'In-Office Procedures',
-    '31237': 'In-Office Procedures',
-    '31238': 'In-Office Procedures',
-    '30901': 'In-Office Procedures',
-    '69200': 'In-Office Procedures',
-
     # Septoplasty and turbinectomy
-    '30520': 'Septoplasty/Turbinectomy',
-    '30140': 'Septoplasty/Turbinectomy',
-    '30801': 'Septoplasty/Turbinectomy',
-    '30802': 'Septoplasty/Turbinectomy',
-    '30930': 'Septoplasty/Turbinectomy',
+    '21315': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
+    '21320': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
+    '30520': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
+    '30140': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
+    '30801': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
+    '30802': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
+    '30930': 'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction',
 
     # Head and neck
     '38510': 'Head and Neck Procedures',
@@ -42,9 +26,12 @@ group_map = {
     '42440': 'Head and Neck Procedures',
 
     # Rhinologic
-    '31267': 'Rhinologic Procedures',
     '30117': 'Rhinologic Procedures',
+    '30901': 'Rhinologic Procedures',
+    '31237': 'Rhinologic Procedures',
+    '31238': 'Rhinologic Procedures',
     '31256': 'Rhinologic Procedures',
+    '31267': 'Rhinologic Procedures',
 
     # Airway
     '40819': 'Airway Procedures',
@@ -361,6 +348,7 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
     solo['CPT'] = standardize_cpt(solo['CPT1'])
 
     solo['CPT GROUP'] = solo['CPT'].map(group_map)
+    solo = solo.dropna(subset=['CPT GROUP']) # drops the ones not in the new mapping
     group_order = sorted(solo['CPT GROUP'].dropna().unique())
     cpt_order = (
         solo[['CPT', 'CPT GROUP']]
@@ -453,8 +441,8 @@ def main():
     resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv")
     #plot_optime_boxplots(df, "filtered_sina2.csv", resultsdf)
     #plot_volume(df_volume)
-    plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
-    #plot_optime_linreg(df)
+    #plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
+    plot_optime_linreg(df)
 
 if __name__ == "__main__":
     main()
