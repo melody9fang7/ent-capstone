@@ -3,6 +3,105 @@ from segmented_hcup import *
 
 # For each CPT code:
 # Standardized Volume = (Count of that CPT in that year / Total HCUP cases that year) × 100
+
+FOR_SINA = True
+
+def plot_results(data_dict, results_df, reval_map, direction_map, outcome_name, ylabel, filename):
+    """Create segmented regression volume plots with large fonts."""
+    sig_cpts = results_df[results_df['Breakpoints_Significant'] == True]['CPT'].tolist()
+    if not sig_cpts:
+        sig_cpts = list(reval_map.keys())[:9]
+    
+    cpts_to_plot = sig_cpts
+    n_plots = len(cpts_to_plot)
+    n_cols = 3
+    n_rows = (n_plots + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 5 * n_rows))
+    axes = axes.flatten()
+    
+    for idx, cpt in enumerate(cpts_to_plot):
+        ax = axes[idx]
+        data = data_dict.get(cpt)
+        
+        if data is None or len(data) < 6:
+            ax.text(0.5, 0.5, f'CPT {cpt}\nInsufficient data', ha='center', va='center', fontsize=14)
+            ax.set_title(f'CPT {cpt}', fontsize=16, fontweight='bold')
+            continue
+        
+        break_years = reval_map.get(cpt, [])
+        yearly_means = data.groupby('YEAR')['VALUE'].mean()
+        
+        try:
+            model, slopes, _ = fit_segmented(data, break_years, 'VALUE')
+            years_range = np.arange(data['YEAR'].min(), data['YEAR'].max() + 1)
+            X_pred = pd.DataFrame({'YEAR': years_range})
+            X_pred['const'] = 1
+            for by in break_years:
+                X_pred[f'TIME_SINCE_{by}'] = np.maximum(0, years_range - by)
+            predictions = model.predict(X_pred)
+            
+            ax.plot(yearly_means.index, yearly_means.values, 'o-', color='steelblue', 
+                   alpha=0.8, markersize=8, linewidth=2, label='Observed')
+            ax.plot(years_range, predictions, '-', color='#c0392b', linewidth=2.5, 
+                   alpha=0.9, label='Regression')
+            
+            for by in break_years:
+                color = get_line_color(cpt, by, direction_map)
+                ax.axvline(x=by, color=color, linestyle='--', linewidth=1.5, alpha=0.7)
+        except:
+            ax.plot(yearly_means.index, yearly_means.values, 'o-', color='steelblue', alpha=0.7)
+        
+        # ── Y-axis scaling ──
+        y_min_data = yearly_means.values.min()
+        y_max_data = yearly_means.values.max()
+        y_range = y_max_data - y_min_data
+        
+        if y_range < 0.01:
+            y_center = (y_max_data + y_min_data) / 2
+            y_min = max(0, y_center - 0.005)
+            y_max = y_center + 0.005
+        else:
+            padding = y_range * 0.15
+            y_min = max(0, y_min_data - padding)
+            y_max = y_max_data + padding
+        
+        ax.set_ylim(y_min, y_max)
+        
+        # ── Stats ──
+        row = results_df[results_df['CPT'] == cpt]
+        if len(row) > 0:
+            f_p = row.iloc[0]['F_Pvalue']
+            sig = '*' if row.iloc[0]['Breakpoints_Significant'] else ''
+            if not FOR_SINA:
+                ax.text(0.98, 0.96, f'F-test p={f_p:.4f}{sig}\nn={len(data):,}', 
+                    transform=ax.transAxes, va='top', ha='right', fontsize=11,
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
+        
+        ax.set_xlabel('Year', fontsize=13, fontweight='bold')
+        ax.set_ylabel(ylabel, fontsize=13, fontweight='bold')
+        ax.set_title(f'CPT {cpt} (n={len(data):,})', fontsize=14, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(labelsize=11)
+        
+        # Integer x-axis
+        x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
+        tick_step = 2
+        ax.set_xticks(range(x_min, x_max + 1, tick_step))
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
+    
+    for idx in range(len(cpts_to_plot), len(axes)):
+        axes[idx].set_visible(False)
+    
+    plt.suptitle(f'Segmented Regression: {outcome_name}\n'
+                f'(Green = wRVU Increase, Red = wRVU Decrease)',
+                fontsize=18, fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white', format='svg')
+    plt.show()
+    print(f"Saved: {filename}")
+
 def load_volume_data(filepath):
     df = pd.read_csv(filepath, low_memory = False)
     print(f"Loaded volume time data: {len(df):,} rows")
@@ -76,70 +175,125 @@ def run_volume_analysis(reval_map, direction_map, magnitude_map, volume_data_dic
     
     return volume_df
 
-def plot_specific_cpts_volume(data_dict, results_df, reval_map, direction_map, magnitude_map, 
-                               outcome_name, ylabel, filename, cpt_list):
+CPT_GROUPS = {
+    "21556": "Head & Neck",
+    "30520": "Septoplasty",
+    "31237": "Rhinologic",
+    "42415": "Head & Neck",
+    "42440": "Head & Neck",
+    "60220": "Head & Neck",
+    "60240": "Head & Neck",
+}
+
+def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitude_map, 
+                       outcome_name, ylabel, filename, cpt_list):
+    """
+    Volume segmented regression plots for selected CPTs.
+    3 columns × 2 rows, large fonts, matches operative time style.
+    """
     cpts_to_plot = [cpt for cpt in cpt_list if cpt in data_dict]
     
-    n_plots = len(cpts_to_plot)
-    n_cols = 2
-    n_rows = (n_plots + n_cols - 1) // n_cols
+    if len(cpts_to_plot) == 0:
+        print(f"None of the specified CPTs found in data: {cpt_list}")
+        return
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 5 * n_rows))
+    n_cols = 3
+    n_rows = 2
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 12))
     axes = axes.flatten()
     
     for idx, cpt in enumerate(cpts_to_plot):
         ax = axes[idx]
         data = data_dict.get(cpt)
+        group = CPT_GROUPS.get(cpt, '')
+        
         if data is None or len(data) < 6:
-            ax.text(0.5, 0.5, f'CPT {cpt}\nInsufficient data', ha='center', va='center')
-            ax.set_title(f'CPT {cpt}')
+            ax.text(0.5, 0.5, f'CPT {cpt}: {group}\nInsufficient data', 
+                   ha='center', va='center', fontsize=18)
+            ax.set_title(f'CPT {cpt}: {group}', fontsize=22, fontweight='bold')
             continue
         
         break_years = reval_map.get(cpt, [])
         yearly_means = data.groupby('YEAR')['VALUE'].mean()
         
-        # observed data
-        ax.plot(yearly_means.index, yearly_means.values, 'o-', color='steelblue', 
-               alpha=0.7, markersize=4, linewidth=1.5, label='Observed')
+        # ── Plot observed data ──
+        ax.plot(yearly_means.index, yearly_means.values, 'o-', 
+               color='steelblue', alpha=0.8, markersize=10, linewidth=2.5, 
+               label='Observed Mean Volume', zorder=3)
         
-        # fit and plot segmented regression
+        # ── Fit and plot segmented regression ──
         try:
             model, slopes, _ = fit_segmented(data, break_years, 'VALUE')
-            years_range = np.arange(data['YEAR'].min(), data['YEAR'].max() + 1)
+            years_range = np.arange(int(data['YEAR'].min()), int(data['YEAR'].max()) + 1)
             X_pred = pd.DataFrame({'YEAR': years_range})
             X_pred['const'] = 1
             for by in break_years:
                 X_pred[f'TIME_SINCE_{by}'] = np.maximum(0, years_range - by)
             predictions = model.predict(X_pred)
-            ax.plot(years_range, predictions, 'r-', linewidth=2, label='Segmented')
+            ax.plot(years_range, predictions, '-', color='#c0392b', 
+                   linewidth=3, alpha=0.9, label='Regression', zorder=2)
         except:
             pass
         
-        # breakpoint lines and annotations
-        y_min, y_max = ax.get_ylim()
-        for i, by in enumerate(break_years):
+        # ── Breakpoint lines ──
+        for by in break_years:
             color = get_line_color(cpt, by, direction_map)
-            ax.axvline(x=by, color=color, linestyle='--', linewidth=1.5, alpha=0.7)        
+            ax.axvline(x=by, color=color, linestyle='--', linewidth=2, alpha=0.7, zorder=1)
+        
+        # ── Stats annotation ──
         row = results_df[results_df['CPT'] == cpt] if len(results_df) > 0 else None
         if row is not None and len(row) > 0:
             f_p = row.iloc[0]['F_Pvalue']
             sig = '*' if row.iloc[0]['Breakpoints_Significant'] else ''
-            ax.text(0.98, 0.98, f'F-test p={f_p:.4f}{sig}', transform=ax.transAxes,
-                    va='top', ha='right', fontsize=8, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            if not FOR_SINA:
+                ax.text(0.98, 0.96, f'F-test p={f_p:.4f}{sig}\nn={len(data):,}', 
+                    transform=ax.transAxes, va='top', ha='right', fontsize=14,
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
+                                edgecolor='gray', alpha=0.9))
         
-        ax.set_xlabel('Year')
-        ax.set_ylabel(ylabel)
-        ax.set_title(f'CPT {cpt}')
-        ax.legend(loc='upper left', fontsize=7)
-        ax.grid(True, alpha=0.3)
+        # ── Y-axis scaling ──
+        y_min_data = yearly_means.values.min()
+        y_max_data = yearly_means.values.max()
+        y_range = y_max_data - y_min_data
+        
+        if y_range < 0.01:  # Very small range
+            y_center = (y_max_data + y_min_data) / 2
+            y_min = max(0, y_center - 0.005)
+            y_max = y_center + 0.005
+        else:
+            padding = y_range * 0.15
+            y_min = max(0, y_min_data - padding)
+            y_max = y_max_data + padding
+        
+        ax.set_ylim(y_min, y_max)
+        
+        # ── Formatting ──
+        ax.set_xlabel('Year', fontsize=16, fontweight='bold')
+        ax.set_ylabel(ylabel, fontsize=16, fontweight='bold')
+        ax.set_title(f'CPT {cpt}: {group}', fontsize=20, fontweight='bold')
+        ax.tick_params(labelsize=14)
+        ax.grid(True, alpha=0.3, linewidth=0.8)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        # Integer x-axis
+        x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
+        tick_step = 2
+        ax.set_xticks(range(x_min, x_max + 1, tick_step))
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
+        
+        ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
     
-    # Hide unused subplots
+    # Hide unused panels
     for idx in range(len(cpts_to_plot), len(axes)):
         axes[idx].set_visible(False)
     
-    plt.suptitle(f'Segmented Regression: {outcome_name} (Selected CPTs)\n(Green = wRVU Increase, Red = wRVU Decrease)', fontsize=14)
-    plt.tight_layout()
-    plt.savefig(filename, dpi=150, bbox_inches='tight', format='svg')
+    plt.suptitle(f'Segmented Regression: {outcome_name}\n'
+                f'(Green = wRVU Increase, Red = wRVU Decrease)',
+                fontsize=22, fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white', format='svg')
     plt.show()
     print(f"Saved: {filename}")
 
@@ -174,8 +328,8 @@ def volume_main():
 
     volume_df = run_volume_analysis(filtered_reval_map, direction_map, magnitude_map, volume_data_dict)
 
-    target_cpts = ['21556', '30520', '38542', '42415', '42420', '42440', '60220', '60240']
-    plot_specific_cpts_volume(
+    target_cpts = ['21556', '30520', '42415', '42440', '60220', '60240']
+    plot_specific_cpts(
         volume_data_dict, 
         volume_df, 
         filtered_reval_map, 
