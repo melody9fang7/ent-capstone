@@ -39,7 +39,6 @@ group_map = {
     '40806': 'Airway Procedures',
 }
 
-
 def filter_solo_cases(data: pd.DataFrame) -> pd.DataFrame:
     """
     Keeps only single-procedure HCUP cases.
@@ -226,7 +225,7 @@ def plot_optime_boxplots_poster(
     reference_csv: str,
     results_df: pd.DataFrame,
     top_n: int = 2,
-    figsize: tuple = (8, 5)
+    figsize: tuple = (8, 6.7)
 ):
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT Code'])
@@ -275,13 +274,14 @@ def plot_optime_boxplots_poster(
 
     bp = ax.boxplot(
         plot_data,
+        widths=0.25, # slightly wider boxplot
         patch_artist=True,
         showmeans=True,
         showfliers=False,
         vert=True,
         meanprops=dict(marker='^', markerfacecolor='green',
-                       markeredgecolor='green', markersize=7),
-        medianprops=dict(color='orange', linewidth=2),
+                       markeredgecolor='green', markersize=10),
+        medianprops=dict(color='orange', linewidth=2.5),
     )
 
     for patch in bp['boxes']:
@@ -307,8 +307,8 @@ def plot_optime_boxplots_poster(
             sign = '+' if diff >= 0 else ''
             ax.annotate(
                 f'{sign}{diff:.0f}m',
-                xy=(x_pos, y_min + y_range * 0.01),
-                ha='center', va='bottom', fontsize=8,
+                xy=(x_pos, y_min + y_range * 0),
+                ha='center', va='bottom', fontsize=10,
                 color='darkgreen' if diff > 0 else 'firebrick',
                 annotation_clip=False
             )
@@ -321,12 +321,13 @@ def plot_optime_boxplots_poster(
         n = n_lookup.get(cpt, '')
         x_labels.append(f'{cpt}{star}\nn={n}\n{group}')
 
-    ax.set_xticklabels(x_labels, fontsize=7.5)
-    ax.set_ylabel('Operative Time (min)', fontsize=9)
+    ax.set_xticklabels(x_labels, fontsize=12)
+    ax.tick_params(axis='y', labelsize=11)
+    ax.set_ylabel('Operative Time (min)', fontsize=12)
     ax.set_xlabel('')
     ax.set_title(
-        'HCUP Top 5 CPTs:\nOperative Time vs.\nRUC Reference',
-        fontsize=10, fontweight='bold'
+        'HCUP Top 2 CPTs:\nOperative Time vs.\n RUC Reference',
+        fontsize=14, fontweight='bold'
     )
     ax.grid(True, alpha=0.3, axis='y')
 
@@ -337,10 +338,10 @@ def plot_optime_boxplots_poster(
         Line2D([0], [0], color='orange', linewidth=2, label='Median'),
         Patch(facecolor='steelblue', alpha=0.5, label='IQR'),
     ]
-    fig.legend(handles=legend_elements, fontsize=7, loc='lower center',
-               ncol=2, bbox_to_anchor=(0.5, 0.0), borderpad=0.5)
+    fig.legend(handles=legend_elements, fontsize=9, loc='lower center',
+               ncol=2, bbox_to_anchor=(0.5, 0.01), borderpad=0.5)
 
-    plt.tight_layout(rect=[0, 0.06, 1, 1])
+    plt.tight_layout(rect=[0, 0.08, 1, 1])
     plt.savefig('optime_boxplots_poster_hcup.png', dpi=300, bbox_inches='tight')
     plt.savefig('optime_boxplots_poster_hcup.svg', bbox_inches='tight')
     plt.show()
@@ -444,8 +445,8 @@ def main():
     resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv")
     #plot_optime_boxplots(df, "filtered_sina2.csv", resultsdf)
     #plot_volume(df_volume)
-    #plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
-    plot_optime_linreg(df)
+    plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
+    #plot_optime_linreg(df)
 
 if __name__ == "__main__":
     main()
