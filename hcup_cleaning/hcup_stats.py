@@ -321,13 +321,13 @@ def plot_optime_boxplots_poster(
         n = n_lookup.get(cpt, '')
         x_labels.append(f'{cpt}{star}\nn={n}\n{group}')
 
-    ax.set_xticklabels(x_labels, fontsize=12)
+    ax.set_xticklabels(x_labels, fontsize=12) # fontweight = 'bold'
     ax.tick_params(axis='y', labelsize=11)
-    ax.set_ylabel('Operative Time (min)', fontsize=12)
+    ax.set_ylabel('Operative Time (min)', fontsize=12) # fontweight = 'bold'
     ax.set_xlabel('')
-    ax.set_title(
+    ax.set_title( 
         'HCUP Top 2 CPTs:\nOperative Time vs.\n RUC Reference',
-        fontsize=14, fontweight='bold'
+        fontsize=14, fontweight='bold' # for bolded x and y ver, set to 16
     )
     ax.grid(True, alpha=0.3, axis='y')
 
