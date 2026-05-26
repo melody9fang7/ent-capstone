@@ -297,7 +297,7 @@ def plot_optime_boxplots_poster(
     ax.set_xlabel('')
     ax.set_title(
         'NSQIP Top 5 CPTs:\nOperative Time vs.\nRUC Reference',
-        fontsize=10, fontweight='bold'
+        fontsize=10, fontweight='bold' 
     )
     ax.grid(True, alpha=0.3, axis='y')
 

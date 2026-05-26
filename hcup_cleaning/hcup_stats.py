@@ -224,8 +224,8 @@ def plot_optime_boxplots_poster(
     data: pd.DataFrame,
     reference_csv: str,
     results_df: pd.DataFrame,
-    top_n: int = 2,
-    figsize: tuple = (8, 6.7)
+    top_n: int = 5,
+    figsize: tuple = (10, 7) # changed to 10, 7
 ):
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT Code'])
@@ -261,7 +261,7 @@ def plot_optime_boxplots_poster(
     group_short = {
         'Diagnostic Procedures': 'Diagnostic',
         'In-Office Procedures': 'Office',
-        'Septoplasty/Turbinectomy': 'Septo & Turbinate',
+        'Septoplasty/Turbinectomy/Closed Nasal Bone Reduction': 'Turbinate',
         'Head and Neck Procedures': 'Head & Neck',
         'Rhinologic Procedures': 'Rhinologic',
         'Airway Procedures': 'Airway',
@@ -274,14 +274,13 @@ def plot_optime_boxplots_poster(
 
     bp = ax.boxplot(
         plot_data,
-        widths=0.25, # slightly wider boxplot
         patch_artist=True,
         showmeans=True,
         showfliers=False,
         vert=True,
         meanprops=dict(marker='^', markerfacecolor='green',
-                       markeredgecolor='green', markersize=10),
-        medianprops=dict(color='orange', linewidth=2.5),
+                       markeredgecolor='green', markersize=10), # changed to 10
+        medianprops=dict(color='orange', linewidth=2.5), # changed to 2.5
     )
 
     for patch in bp['boxes']:
@@ -308,7 +307,7 @@ def plot_optime_boxplots_poster(
             ax.annotate(
                 f'{sign}{diff:.0f}m',
                 xy=(x_pos, y_min + y_range * 0),
-                ha='center', va='bottom', fontsize=10,
+                ha='center', va='bottom', fontsize=10, # changed to 10
                 color='darkgreen' if diff > 0 else 'firebrick',
                 annotation_clip=False
             )
@@ -321,13 +320,13 @@ def plot_optime_boxplots_poster(
         n = n_lookup.get(cpt, '')
         x_labels.append(f'{cpt}{star}\nn={n}\n{group}')
 
-    ax.set_xticklabels(x_labels, fontsize=12) # fontweight = 'bold'
-    ax.tick_params(axis='y', labelsize=11)
-    ax.set_ylabel('Operative Time (min)', fontsize=12) # fontweight = 'bold'
+    ax.set_xticklabels(x_labels, fontsize=16, fontweight = 'bold') # changed to 16
+    ax.tick_params(axis='y', labelsize=14) # changed to 14
+    ax.set_ylabel('Operative Time (min)', fontsize=16, fontweight = 'bold') # changed to 16
     ax.set_xlabel('')
     ax.set_title( 
-        'HCUP Top 2 CPTs:\nOperative Time vs.\n RUC Reference',
-        fontsize=14, fontweight='bold' # for bolded x and y ver, set to 16
+        'HCUP Top 2 CPTs:\nOperative Time vs. RUC Reference', # changed to two lines
+        fontsize=22, fontweight='bold' # and to 22
     )
     ax.grid(True, alpha=0.3, axis='y')
 
@@ -335,13 +334,13 @@ def plot_optime_boxplots_poster(
         Line2D([0], [0], color='red', linewidth=2, linestyle='--', label='RUC mean'),
         Line2D([0], [0], marker='^', color='w', markerfacecolor='green',
                markersize=8, label='Observed mean'),
-        Line2D([0], [0], color='orange', linewidth=2, label='Median'),
+        Line2D([0], [0], color='orange', linewidth=2, label='Median'), 
         Patch(facecolor='steelblue', alpha=0.5, label='IQR'),
     ]
-    fig.legend(handles=legend_elements, fontsize=9, loc='lower center',
-               ncol=2, bbox_to_anchor=(0.5, 0.01), borderpad=0.5)
+    fig.legend(handles=legend_elements, fontsize=11, loc='lower center', # changed to fontsize 11
+               ncol=2, bbox_to_anchor=(0.5, 0.01), borderpad=0.5) # changed anchor to 0.0 -> 0.01
 
-    plt.tight_layout(rect=[0, 0.08, 1, 1])
+    plt.tight_layout(rect=[0, 0.08, 1, 1]) # 0.06 -> 0.08
     plt.savefig('optime_boxplots_poster_hcup.png', dpi=300, bbox_inches='tight')
     plt.savefig('optime_boxplots_poster_hcup.svg', bbox_inches='tight')
     plt.show()
