@@ -1,6 +1,8 @@
-from nsqip_segmented_lr import *
+
+from segmented_hcup import *
+
 # For each CPT code:
-# Standardized Volume = (Count of that CPT in that year / Total NSQIP cases that year) × 100
+# Standardized Volume = (Count of that CPT in that year / Total HCUP cases that year) × 100
 
 FOR_SINA = True
 
@@ -85,7 +87,7 @@ def plot_results(data_dict, results_df, reval_map, direction_map, outcome_name, 
         
         # Integer x-axis
         x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
-        tick_step = max(1, (x_max - x_min) // 4)
+        tick_step = 2
         ax.set_xticks(range(x_min, x_max + 1, tick_step))
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
     
@@ -100,94 +102,45 @@ def plot_results(data_dict, results_df, reval_map, direction_map, outcome_name, 
     plt.show()
     print(f"Saved: {filename}")
 
-def load_total_cases_per_year(filepath, ent_codes):
-    """
-    calc total NSQIP cases per year (denominator for standardization).
-    Each row in combined_filtered.csv is one case.
-    """
-    df = pd.read_csv(filepath, low_memory=False)
-    df['YEAR'] = pd.to_numeric(df['PUFYEAR'], errors='coerce')
-    df = df[(df['YEAR'] >= YEAR_START) & (df['YEAR'] <= YEAR_END)]
-    
-    total_per_year = df.groupby('YEAR').size().reset_index(name='total_cases')
-    print(f"Total cases per year (all specialties):")
-    print(total_per_year.to_string(index=False))
-    return total_per_year
+def load_volume_data(filepath):
+    df = pd.read_csv(filepath, low_memory = False)
+    print(f"Loaded volume time data: {len(df):,} rows")
 
+    df["AYEAR"] = pd.to_numeric(df["AYEAR"], errors = "coerce")
+    df["PRIMARY_COUNT"] = pd.to_numeric(df["PRIMARY_COUNT"], errors="coerce")
+    df["NORMALIZED_VOLUME"] = pd.to_numeric(df["NORMALIZED_VOLUME"], errors="coerce")
+    df["CPT"] = standardize_cpt(df["CPT"])
+    df = df.dropna(subset = ["NORMALIZED_VOLUME", "AYEAR"])
 
-def build_volume_data(filepath, ent_codes, total_per_year):
-    """
-    for each ENT CPT code, calculate standardized volume per year.
-    ALL cases (solo and non-solo) where this CPT appears as primary.
-    Returns 
-        dict: {cpt: DataFrame with YEAR, VALUE (standardized percentage)}
-    """
-    df = pd.read_csv(filepath, low_memory=False)
-    df['YEAR'] = pd.to_numeric(df['PUFYEAR'], errors='coerce')
-    df['CPT_NUM'] = pd.to_numeric(df['CPT'], errors='coerce')
-    
-    # ENT codes
-    df_ent = df[df['CPT_NUM'].isin(ent_codes)].copy()
-    df_ent = df_ent.dropna(subset=['YEAR'])
-    df_ent = df_ent[(df_ent['YEAR'] >= YEAR_START) & (df_ent['YEAR'] <= YEAR_END)]
-    
-    # occurrences per CPT per year
-    yearly_counts = df_ent.groupby(['CPT_NUM', 'YEAR']).size().reset_index(name='count')
-    
-    # merge with total cases and standardize
-    yearly_counts = yearly_counts.merge(total_per_year, on='YEAR')
-    yearly_counts['VALUE'] = yearly_counts['count'] / yearly_counts['total_cases'] * 100
-    
-    # build dict similar to optime_data_dict
-    volume_data_dict = {}
-    for cpt_num in yearly_counts['CPT_NUM'].unique():
-        cpt_str = str(int(cpt_num))
-        cpt_data = yearly_counts[yearly_counts['CPT_NUM'] == cpt_num][['YEAR', 'VALUE']].copy()
-        if len(cpt_data) >= 5:
-            volume_data_dict[cpt_str] = cpt_data
-    
-    print(f"Built volume data for {len(volume_data_dict)} CPTs")
-    return volume_data_dict
+    df = df[(df["AYEAR"] >= YEAR_START) & (df["AYEAR"] <= YEAR_END)]
 
-def build_volume_data_combined(volume_adult, volume_peds, total_adult, total_peds, ent_codes):
-    """
-    Build volume data dict from combined adult + pediatric NSQIP.
-    Standardized by COMBINED total cases (NSQIP + NSQIP-P).
-    """
-    # Combined denominator: sum total cases from both datasets per year
-    total_combined = pd.concat([total_adult, total_peds]).groupby('YEAR').sum().reset_index()
-    
-    print(f"\nCombined total cases per year (NSQIP + NSQIP-P):")
-    print(total_combined.to_string(index=False))
-    
-    # Raw counts per CPT per year from adult
-    adult_counts = volume_adult.groupby(['CPT_NUM', 'YEAR']).size().reset_index(name='count_adult')
-    
-    # Raw counts per CPT per year from peds
-    peds_counts = volume_peds.groupby(['CPT_NUM', 'YEAR']).size().reset_index(name='count_peds')
-    
-    # Merge and sum counts from both datasets
-    yearly_counts = adult_counts.merge(peds_counts, on=['CPT_NUM', 'YEAR'], how='outer')
-    yearly_counts['count_adult'] = yearly_counts['count_adult'].fillna(0).astype(int)
-    yearly_counts['count_peds'] = yearly_counts['count_peds'].fillna(0).astype(int)
-    yearly_counts['count'] = yearly_counts['count_adult'] + yearly_counts['count_peds']
-    
-    # Standardize by COMBINED total
-    yearly_counts = yearly_counts.merge(total_combined, on='YEAR')
-    yearly_counts['VALUE'] = yearly_counts['count'] / yearly_counts['total_cases'] * 100
-    
-    # Build dict
-    volume_data_dict = {}
-    for cpt_num in yearly_counts['CPT_NUM'].unique():
-        cpt_str = str(int(cpt_num))
-        cpt_data = yearly_counts[yearly_counts['CPT_NUM'] == cpt_num][['YEAR', 'VALUE']].copy()
-        if len(cpt_data) >= 5:
-            volume_data_dict[cpt_str] = cpt_data
-    
-    print(f"Built combined volume data for {len(volume_data_dict)} CPTs")
-    print(f"(Standardized by NSQIP + NSQIP-P total cases per year)")
-    return volume_data_dict
+    return df
 
+def get_volume_cpts(volume_file, output_file, min_cases=100):
+    """
+    Gets CPT codes from HCUP volume table with at least min_cases primary cases.
+    """
+    df_volume = pd.read_csv(volume_file)
+
+    df_volume["CPT"] = standardize_cpt(df_volume["CPT"])
+    df_volume["PRIMARY_COUNT"] = pd.to_numeric(df_volume["PRIMARY_COUNT"], errors="coerce")
+
+    counts = df_volume.groupby("CPT")["PRIMARY_COUNT"].sum()
+    keep_cpts = counts[counts >= min_cases].index.tolist()
+
+    keep_df = pd.DataFrame({"CPT1": keep_cpts})
+    keep_df.to_csv(output_file, index=False)
+
+    print(f"CPTs with >={min_cases} primary cases: {len(keep_cpts)}")
+    print(f"Saved CPT list to: {output_file}")
+
+    return output_file
+
+def get_volume_data(df, cpt):
+    data = df[df["CPT"] == cpt].copy()
+    if len(data) < 5:
+        return None
+    return data[["AYEAR", "NORMALIZED_VOLUME"]].rename(columns={"AYEAR": "YEAR", "NORMALIZED_VOLUME": "VALUE"})
 
 def run_volume_analysis(reval_map, direction_map, magnitude_map, volume_data_dict):
     volume_results = []
@@ -216,32 +169,21 @@ def run_volume_analysis(reval_map, direction_map, magnitude_map, volume_data_dic
         print_detailed_results(volume_df, direction_map, magnitude_map)
         plot_results(volume_data_dict, volume_df, reval_map, direction_map,
                     "Procedural Volume Response", 
-                    "Percent of Total NSQIP Cases", 
+                    "Percent of Total HCUP Cases", 
                     "segmented_volume_dynamic.svg")
         volume_df.to_csv('volume_segmented_results_dynamic.csv', index=False)
     
     return volume_df
 
-# CPT → procedure group mapping
 CPT_GROUPS = {
-    '38542': 'Neck Dissection',
-    '42415': 'Salivary Gland',
-    '42420': 'Salivary Gland',
-    '42440': 'Salivary Gland',
-    '60220': 'Thyroid',
-    '60240': 'Thyroid',
+    "21556": "Head & Neck",
+    "30520": "Septoplasty",
+    "31237": "Rhinologic",
+    "42415": "Head & Neck",
+    "42440": "Head & Neck",
+    "60220": "Head & Neck",
+    "60240": "Head & Neck",
 }
-
-GROUP_COLORS = {
-    'Neck Dissection': '#00a6ed',
-    'Salivary Gland': '#ffa600',
-    'Thyroid': '#bc4c96',
-}
-
-#003d5c
-#bc4c96
-#ffa600
-
 
 def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitude_map, 
                        outcome_name, ylabel, filename, cpt_list):
@@ -337,7 +279,7 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
         
         # Integer x-axis
         x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
-        tick_step = max(1, (x_max - x_min) // 5)
+        tick_step = 2
         ax.set_xticks(range(x_min, x_max + 1, tick_step))
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
         
@@ -355,112 +297,49 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
     plt.show()
     print(f"Saved: {filename}")
 
-
 def volume_main():
+    
     print("SEGMENTED REGRESSION ANALYSIS")
-    
-    ent_codes = load_ent_codes('nsqip_cleaning/ENT_CPT_CODES.csv')
-    df_volume = load_data_for_reval('nsqip_cleaning/combined_filtered.csv', ent_codes)
-    
-    reval_map, direction_map, magnitude_map = detect_revaluations_from_data(df_volume)
+    volume_file = "hcup_volume_table.csv"
+    nsqip_file = "combined_filtered_930.csv"
+
+    cpt_file = get_volume_cpts(volume_file, output_file = "volume_cpts.csv", min_cases = 100)  
+
+    df_rvu = extract_yearly_wrvu(cpt_file, nsqip_file, output_file = "yearly_wrvu_volume.csv")
+    reval_map, direction_map, magnitude_map = detect_revaluations_from_data(df_rvu)
+
+    filtered_reval_map = {}
+    for cpt, years in reval_map.items():
+        valid_years = [y for y in years if 2008 <= y <= 2017]
+        if valid_years:
+            filtered_reval_map[cpt] = valid_years
+    print(f"\nOriginal CPTs with detected revals: {len(reval_map)}")
+    print(f"CPTs with breakpoints inside 2008-2017: {len(filtered_reval_map)}")
+
+    df_volume = load_volume_data(volume_file)
     
     print("PROCEDURAL VOLUME ANALYSIS")
-    
-    total_per_year = load_total_cases_per_year('nsqip_cleaning/combined_filtered.csv', ent_codes)
-    volume_data_dict = build_volume_data('nsqip_cleaning/combined_filtered.csv', ent_codes, total_per_year)
-    volume_df = run_volume_analysis(reval_map, direction_map, magnitude_map, volume_data_dict)
 
-    target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
+    volume_data_dict = {}
+    for cpt in df_volume["CPT"].unique():
+        data = get_volume_data(df_volume, cpt)
+        if data is not None:
+            volume_data_dict[cpt] = data
+
+    volume_df = run_volume_analysis(filtered_reval_map, direction_map, magnitude_map, volume_data_dict)
+
+    target_cpts = ['21556', '30520', '42415', '42440', '60220', '60240']
     plot_specific_cpts(
         volume_data_dict, 
         volume_df, 
-        reval_map, 
+        filtered_reval_map, 
         direction_map,
         magnitude_map,
         "Procedural Volume Response", 
-        "Percent of Total NSQIP Cases", 
+        "Percent of Total HCUP Cases", 
         "segmented_volume_selected_cpts.svg",
         target_cpts
     )
 
-def volume_main_combined():
-    print("SEGMENTED REGRESSION ANALYSIS — PROCEDURAL VOLUME")
-    
-    ent_codes = load_ent_codes('nsqip_cleaning/ENT_CPT_CODES.csv')
-    
-    # ═══════════════════════════════════════════════════════════
-    # CHOOSE ONE:
-    # ═══════════════════════════════════════════════════════════
-    
-    # ── OPTION A: NSQIP Adult only ──
-    #df_volume = load_data_for_reval('nsqip_cleaning/combined_filtered.csv', ent_codes)
-    #total_per_year = load_total_cases_per_year('nsqip_cleaning/combined_filtered.csv', ent_codes)
-    #volume_data_dict = build_volume_data('nsqip_cleaning/combined_filtered.csv', ent_codes, total_per_year)
-    
-    # ── OPTION B: NSQIP-P Pediatric only ──
-    # df_volume = load_data_for_reval('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes)
-    # total_per_year = load_total_cases_per_year('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes)
-    # volume_data_dict = build_volume_data('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes, total_per_year)
-    
-    # ── OPTION C: Combined Adult + Pediatric ──
-    print("Loading NSQIP Adult volume data: ")
-    volume_adult = load_data_for_reval('nsqip_cleaning/combined_filtered.csv', ent_codes)
-    total_adult = load_total_cases_per_year('nsqip_cleaning/combined_filtered.csv', ent_codes)
-    vol_dict_adult = build_volume_data('nsqip_cleaning/combined_filtered.csv', ent_codes, total_adult)
-    
-    #print("\nLoading NSQIP-P Pediatric volume data: ")
-    volume_peds = load_data_for_reval('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes)
-    total_peds = load_total_cases_per_year('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes)
-    vol_dict_peds = build_volume_data('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes, total_peds)
-    
-    # Combine revaluation data
-    df_volume = pd.concat([volume_adult, volume_peds], ignore_index=True)
-    print(f"\nCombined volume data for revaluation detection: {len(df_volume):,} rows")
-    
-    # Combine total cases per year (sum both datasets)
-    total_combined = pd.concat([total_adult, total_peds]).groupby('YEAR').sum().reset_index()
-    print(f"Combined total cases per year:")
-    print(total_combined.to_string(index=False))
-    
-    # Combine volume data dicts (add the rates together? no — recalculate from combined)
-    # Since each CPT appears in both datasets with different denominators,
-    # we need to rebuild from the combined raw data.
-    # Simpler approach: combine the raw counts and recalculate
-    
-    # Rebuild volume dict from combined data
-    volume_data_dict = build_volume_data_combined(
-        volume_adult, volume_peds, total_adult, total_peds, ent_codes
-    )
-
-    # ── ──────── Everything after this should be the same ──────── ──
-
-    reval_map, direction_map, magnitude_map = detect_revaluations_from_data(df_volume)
-    
-    print(f"\nFound {len(reval_map)} CPTs with revaluations (≥{MIN_RVU_CHANGE_PCT}% change)")
-    
-    print("\nPROCEDURAL VOLUME ANALYSIS")
-    volume_df = run_volume_analysis(reval_map, direction_map, magnitude_map, volume_data_dict)
-
-    target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
-    plot_specific_cpts(
-        volume_data_dict, 
-        volume_df, 
-        reval_map, 
-        direction_map,
-        magnitude_map,
-        "Procedural Volume Response", 
-        "Percent of Total NSQIP Cases", 
-        "segmented_volume_selected_combined.svg",
-        target_cpts
-    )
-    
-    print("\nSaved: volume_segmented_results_dynamic.csv")
-    print("Saved: segmented_volume_dynamic.svg")
-    print("Saved: segmented_volume_selected_combined.svg")
-
-
-
-
 if __name__ == "__main__":
     volume_main()
-    #volume_main_combined()

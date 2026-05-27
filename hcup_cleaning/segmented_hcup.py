@@ -3,22 +3,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from scipy import stats
+from filtering import standardize_cpt
 import warnings
 warnings.filterwarnings('ignore')
 
+MIN_RVU_CHANGE_PCT = 0.05
+YEAR_START = 2008
+YEAR_END = 2017
 FOR_SINA = True
 
-MIN_RVU_CHANGE_PCT = 0.05
-YEAR_START = 2005
-YEAR_END = 2022
-
-def load_reference_times(filepath='nsqip_cleaning/reference_times.csv'):
+def load_reference_times(filepath="filtered_sina2.csv"):
     """
     Load reference intraoperative times from CSV.
     Returns dict: {cpt_str: intra_time_minutes}
     """
     ref = pd.read_csv(filepath)
-    ref['CPT'] = ref['CPT'].astype(str).str.strip()
+    ref["CPT"] = standardize_cpt(ref["CPT Code"])
     
     ref_times = {}
     for _, row in ref.iterrows():
@@ -30,57 +30,80 @@ def load_reference_times(filepath='nsqip_cleaning/reference_times.csv'):
     print(f"Loaded reference times for {len(ref_times)} CPTs")
     return ref_times
 
-REFERENCE_TIMES = load_reference_times('nsqip_cleaning/reference_times.csv')
-
-def filter_solo_cases(df):
-    other_cols = [c for c in df.columns if c.startswith('OTHERCPT')]
-    if other_cols:
-        is_solo = df[other_cols].isnull().all(axis=1)
-        print(f"Kept {is_solo.sum():,} solo cases ({is_solo.sum()/len(df)*100:.1f}%)")
-        return df[is_solo].copy()
-    return df
-
-def load_ent_codes(filepath):
-    ent_cpt_df = pd.read_csv(filepath)
-    first_col = ent_cpt_df.iloc[:, 0]
-    ent_cpt_codes = set()
-    for val in first_col:
-        try:
-            if pd.notna(val):
-                val_str = str(val).strip()
-                if val_str.replace('.', '').replace('-', '').isdigit():
-                    cpt_int = int(float(val_str))
-                    ent_cpt_codes.add(cpt_int)
-        except:
-            continue
-    print(f"Loaded {len(ent_cpt_codes)} ENT CPT codes")
-    return ent_cpt_codes
+REFERENCE_TIMES = load_reference_times("filtered_sina2.csv")
 
 def load_optime_data(filepath):
-    df = pd.read_csv(filepath)
-    print(f"{len(df):,} rows before filtering for solo procedures")
-    df = filter_solo_cases(df)
-    print(f"{len(df):,} rows after filtering for solo procedures")
-    df['OPTIME'] = pd.to_numeric(df['OPTIME'], errors='coerce')
-    df['YEAR'] = pd.to_numeric(df['PUFYEAR'], errors='coerce')
-    df['CPT'] = df['CPT'].astype(str)
-    df = df.dropna(subset=['OPTIME', 'YEAR'])
+    df = pd.read_csv(filepath, low_memory=False)
+    print(f"Loaded operative time data: {len(df):,} rows")
+
+    df["ORTIME"] = pd.to_numeric(df["ORTIME"], errors="coerce")
+    df["AYEAR"] = pd.to_numeric(df["AYEAR"], errors="coerce")
+    df["CPT1"] = standardize_cpt(df["CPT1"])
+    df = df.dropna(subset=["ORTIME", "AYEAR"])
+    df = df[df["ORTIME"] > 0]
+    df = df[(df["AYEAR"] >= YEAR_START) & (df["AYEAR"] <= YEAR_END)]
+
     return df
 
-def load_data_for_reval(filepath, ent_codes):
-    df = pd.read_csv(filepath, low_memory=False)
-    print(f"Loaded {len(df):,} rows for revaluation detection")
-    df['YEAR'] = pd.to_numeric(df['PUFYEAR'], errors='coerce')
-    df['CPT_NUM'] = pd.to_numeric(df['CPT'], errors='coerce')
-    df['WORKRVU'] = pd.to_numeric(df['WORKRVU'], errors='coerce')
-    
-    df_ent = df[df['CPT_NUM'].isin(ent_codes)].copy()
-    df_ent = df_ent.dropna(subset=['YEAR', 'WORKRVU'])
-    df_ent = df_ent[(df_ent['YEAR'] >= YEAR_START) & (df_ent['YEAR'] <= YEAR_END)]
-    print(f"ENT procedures: {len(df_ent):,} rows")
-    return df_ent
+# use these funcs only on nsqip data
+def extract_yearly_wrvu(cpt_file, nsqip_file, output_file, year_start = 2005, year_end = 2022, chunk_size = 150000):
+    """
+    Extracts yearly wRVUs from NSQIP dataset for CPT codes.
+    """
+    cpt_df = pd.read_csv(cpt_file)
+    cpt_df["CPT"] = standardize_cpt(cpt_df["CPT1"])
+    keep_cpts = set(cpt_df["CPT"])
 
-# DYNAMIC REVALUATION DETECTION
+    yearly_wrvu = {}
+
+    print("Starting yearly wRVU extraction...")
+    for chunk in pd.read_csv(nsqip_file, chunksize = chunk_size, low_memory = False):
+        chunk["CPT"] = standardize_cpt(chunk["CPT"])
+        chunk["PUFYEAR"] = pd.to_numeric(chunk["PUFYEAR"], errors = "coerce").astype("Int64")
+        chunk["WORKRVU"] = pd.to_numeric(chunk["WORKRVU"], errors = "coerce")
+
+        for i in range(1, 11):
+            chunk[f"OTHERCPT{i}"] = standardize_cpt(chunk[f"OTHERCPT{i}"])
+            chunk[f"OTHERWRVU{i}"] = pd.to_numeric(chunk[f"OTHERWRVU{i}"], errors = "coerce")
+
+        main_match = chunk[chunk["CPT"].isin(keep_cpts)]
+        for _, row in main_match.iterrows():
+            cpt = row["CPT"]
+            year = row["PUFYEAR"]
+            wrvu = row["WORKRVU"]
+            
+            if pd.notna(year) and pd.notna(wrvu):
+                if year_start <= year <= year_end:
+                    if (cpt, int(year)) not in yearly_wrvu:
+                        yearly_wrvu[(cpt, int(year))] = wrvu
+
+        for i in range(1, 11):
+            cpt_col = f"OTHERCPT{i}"
+            wrvu_col = f"OTHERWRVU{i}"
+
+            other_match = chunk[chunk[cpt_col].isin(keep_cpts)]
+            for _, row in other_match.iterrows():
+                cpt = row[cpt_col]
+                year = row["PUFYEAR"]
+                wrvu = row[wrvu_col]
+
+                if pd.notna(year) and pd.notna(wrvu):
+                    if year_start <= year <= year_end:
+                        if (cpt, int(year)) not in yearly_wrvu:
+                            yearly_wrvu[(cpt, int(year))] = wrvu
+
+    yearly_df = pd.DataFrame({"CPT": cpt, "YEAR": year, "WORKRVU": wrvu} for (cpt, year), wrvu in yearly_wrvu.items())
+    yearly_df = yearly_df.sort_values(["CPT", "YEAR"])
+    manual_row = pd.DataFrame([{"CPT": "30520", "YEAR": 2007, "WORKRVU": 6.85}])
+    yearly_df = pd.concat([yearly_df, manual_row], ignore_index = True)
+    yearly_df = yearly_df.sort_values(["CPT", "YEAR"])
+    yearly_df.to_csv(output_file, index = False)
+
+    print("\nYearly wRVU extraction DONE.")
+    print(f"Rows: {len(yearly_df)}")
+    print(f"CPTs found: {yearly_df['CPT'].nunique()}")
+
+    return yearly_df
 
 def detect_revaluations_from_data(df_ent, min_change_pct=MIN_RVU_CHANGE_PCT):
     """
@@ -94,15 +117,15 @@ def detect_revaluations_from_data(df_ent, min_change_pct=MIN_RVU_CHANGE_PCT):
         direction_map: {cpt: {year: 'increase' or 'decrease'}}
         magnitude_map: {cpt: {year: percent_change}}
     """
-    yearly_rvu = df_ent.groupby(['CPT_NUM', 'YEAR'])['WORKRVU'].mean().reset_index()
-    yearly_rvu = yearly_rvu.sort_values(['CPT_NUM', 'YEAR'])
+    #yearly_rvu = df_ent.groupby(['CPT_NUM', 'YEAR'])['WORKRVU'].mean().reset_index()
+    yearly_rvu = df_ent.sort_values(['CPT', 'YEAR'])
     
     reval_map = {}
     direction_map = {}
     magnitude_map = {}
     
-    for cpt in yearly_rvu['CPT_NUM'].unique():
-        cpt_data = yearly_rvu[yearly_rvu['CPT_NUM'] == cpt].sort_values('YEAR').copy()
+    for cpt in yearly_rvu['CPT'].unique():
+        cpt_data = yearly_rvu[yearly_rvu['CPT'] == cpt].sort_values('YEAR').copy()
         
         if len(cpt_data) <= 1:
             continue
@@ -155,6 +178,8 @@ def detect_revaluations_from_data(df_ent, min_change_pct=MIN_RVU_CHANGE_PCT):
     
     return reval_map, direction_map, magnitude_map
 
+# continuing on
+
 def get_revaluation_info(cpt, year, direction_map, magnitude_map):
     """Get direction and magnitude for a specific revaluation event"""
     direction = direction_map.get(cpt, {}).get(year, None)
@@ -170,8 +195,7 @@ def get_line_color(cpt, year, direction_map):
         return 'red'
     else:
         return 'gray'
-
-
+ 
 def fit_segmented(data, break_years, outcome_col):
     """Fit segmented regression with breakpoints ALL years"""
     data = data.sort_values('YEAR').copy()
@@ -232,10 +256,10 @@ def evaluate_breakpoints(data, cpt, break_years, outcome_col, outcome_name):
 
 def get_optime_data(df, cpt):
     """Get operative time data - ALL available years"""
-    data = df[df['CPT'] == cpt].copy()
+    data = df[df['CPT1'] == cpt].copy()
     if len(data) < 10:
         return None
-    return data[['YEAR', 'OPTIME']].rename(columns={'OPTIME': 'VALUE'})
+    return data[['AYEAR', 'ORTIME']].rename(columns={'AYEAR': 'YEAR', 'ORTIME': 'VALUE'})
 
 
 def print_results_table(results_df, outcome_name, direction_map=None, magnitude_map=None):
@@ -391,7 +415,7 @@ def plot_results(data_dict, results_df, reval_map, direction_map, outcome_name, 
         
         # Integer x-axis
         x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
-        tick_step = max(1, (x_max - x_min) // 4)
+        tick_step = 2
         ax.set_xticks(range(x_min, x_max + 1, tick_step))
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
     
@@ -478,26 +502,15 @@ def plot_specific_cpts_OLD(data_dict, results_df, reval_map, direction_map, magn
     plt.show()
     print(f"Saved: {filename}")
 
-# CPT → procedure group mapping
 CPT_GROUPS = {
-    '38542': 'Neck Dissection',
-    '42415': 'Salivary Gland',
-    '42420': 'Salivary Gland',
-    '42440': 'Salivary Gland',
-    '60220': 'Thyroid',
-    '60240': 'Thyroid',
+    "21556": "Head & Neck",
+    "30520": "Septoplasty",
+    "31237": "Rhinologic",
+    "42415": "Head & Neck",
+    "42440": "Head & Neck",
+    "60220": "Head & Neck",
+    "60240": "Head & Neck",
 }
-
-GROUP_COLORS = {
-    'Neck Dissection': '#540d6e',
-    'Salivary Gland': '#ffa600',
-    'Thyroid': '#bc4c96',
-}
-
-#003d5c
-#bc4c96
-#ffa600
-
 
 def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitude_map, 
                        outcome_name, ylabel, filename, cpt_list):
@@ -505,6 +518,7 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
     Poster-ready segmented regression plots for selected CPTs.
     3 columns × 2 rows, large fonts, reference lines from CSV, scaled y-axes.
     """
+
     cpts_to_plot = [cpt for cpt in cpt_list if cpt in data_dict]
     
     if len(cpts_to_plot) == 0:
@@ -605,7 +619,7 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
         
         # Integer x-axis
         x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
-        tick_step = max(1, (x_max - x_min) // 5)
+        tick_step = 2
         ax.set_xticks(range(x_min, x_max + 1, tick_step))
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
         
@@ -623,48 +637,30 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
     plt.show()
     print(f"Saved: {filename}")
 
-
-
 # MAIN
 
 def main():
-    print("SEGMENTED REGRESSION ANALYSIS")
-    # ── Shared ENT codes ──
-    ent_codes = load_ent_codes('nsqip_cleaning/ENT_CPT_CODES.csv')
-    
-    ################################################################################
+    print("HCUP SEGMENTED REGRESSION ANALYSIS")
+    cpt_list = 'hcup_cpt_counts.csv'
+    nsqip_file = 'combined_filtered_930.csv'
+    ref_file = "filtered_sina2.csv"
 
-    # ──── CHOOSE ONE: ────
-    
-    # ── OPTION A: NSQIP Adult only ──
-    #df_optime = load_optime_data('nsqip_cleaning/combined_filtered_29.csv')
-    #df_volume = load_data_for_reval('nsqip_cleaning/combined_filtered_29.csv', ent_codes)
-    
-    # ── OPTION B: NSQIP-P Pediatric only ──
-    # df_optime = load_optime_data('nsqip-pediatrics/NSQIP-P_combined_filtered_solo.csv')
-    # df_volume = load_data_for_reval('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes)  # ← use full file
-    
-    # ── OPTION C: Combined Adult + Pediatric ──
-    optime_adult = load_optime_data('nsqip_cleaning/combined_filtered_29.csv')
-    volume_adult = load_data_for_reval('nsqip_cleaning/combined_filtered_29.csv', ent_codes)
-    
-    optime_peds = load_optime_data('nsqip-pediatrics/NSQIP-P_combined_filtered_solo.csv')
-    volume_peds = load_data_for_reval('nsqip-pediatrics/ALL_NSQIP-P.csv', ent_codes)
-    
-    df_optime = pd.concat([optime_adult, optime_peds], ignore_index=True)
-    df_volume = pd.concat([volume_adult, volume_peds], ignore_index=True)
-    
-    print(f"\nCombined optime: {len(df_optime):,} rows")
-    print(f"Combined volume: {len(df_volume):,} rows")
-
-    # ──── ──────────────────────────────────── ────
-    
-    # Everything below this is the same regardless of data source
-        
+    # Load data
+    df_optime = load_optime_data('HCUP_filtered_172_cleaned.csv')
+    df_volume = extract_yearly_wrvu(cpt_list, nsqip_file, output_file = 'yearly_wrvu.csv')
     reval_map, direction_map, magnitude_map = detect_revaluations_from_data(df_volume)
+
+    # to get right range for hcup (2008, 2017)
+    filtered_reval_map = {}
+    for cpt, years in reval_map.items():
+        valid_years = [y for y in years if 2008 <= y <= 2017]
+        if valid_years:
+            filtered_reval_map[cpt] = valid_years
+    print(f"\nOriginal CPTs with detected revals: {len(reval_map)}")
+    print(f"CPTs with breakpoints inside 2008-2017: {len(filtered_reval_map)}")
     
-    print(f"Found {len(reval_map)} CPTs with revaluations (≥{MIN_RVU_CHANGE_PCT}% change):")
-    for cpt, years in list(reval_map.items())[:15]:
+    print(f"Found {len(filtered_reval_map)} CPTs with revaluations (≥{MIN_RVU_CHANGE_PCT}% change):")
+    for cpt, years in list(filtered_reval_map.items())[:15]:
         dir_strs = []
         for y in years:
             d, m = get_revaluation_info(cpt, y, direction_map, magnitude_map)
@@ -676,8 +672,8 @@ def main():
     optime_results = []
     optime_data_dict = {}
     
-    for cpt, break_years in reval_map.items():
-        if cpt not in df_optime['CPT'].unique():
+    for cpt, break_years in filtered_reval_map.items():
+        if cpt not in df_optime['CPT1'].unique():
             continue
         
         data = get_optime_data(df_optime, cpt)
@@ -691,15 +687,15 @@ def main():
     if len(optime_df) > 0:
         print_results_table(optime_df, "Operative Time", direction_map, magnitude_map)
         print_detailed_results(optime_df, direction_map, magnitude_map)
-        plot_results(optime_data_dict, optime_df, reval_map, direction_map,
+        plot_results(optime_data_dict, optime_df, filtered_reval_map, direction_map,
                     "Operative Time Response", "Operative Time (minutes)", "segmented_optime_dynamic.svg")
         optime_df.to_csv('optime_segmented_results_dynamic.csv', index=False)
 
-    target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
+    target_cpts = ['21556', '30520', '38542', '42415', '42420', '42440', '60220', '60240']
     plot_specific_cpts(
         optime_data_dict, 
         optime_df, 
-        reval_map, 
+        filtered_reval_map, 
         direction_map,
         magnitude_map,
         "Operative Time Response", 
@@ -711,9 +707,9 @@ def main():
     # FINAL SUMMARY
     print("FINAL SUMMARY")
     
-    inc_count = sum(1 for cpt, years in reval_map.items() 
+    inc_count = sum(1 for cpt, years in filtered_reval_map.items() 
                     for y in years if direction_map.get(cpt, {}).get(y) == 'increase')
-    dec_count = sum(1 for cpt, years in reval_map.items() 
+    dec_count = sum(1 for cpt, years in filtered_reval_map.items() 
                     for y in years if direction_map.get(cpt, {}).get(y) == 'decrease')
     
     print(f"Total revaluation events detected: {inc_count + dec_count}")

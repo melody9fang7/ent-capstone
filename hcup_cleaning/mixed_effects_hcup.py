@@ -2,6 +2,7 @@ import pandas as pd
 import statsmodels.formula.api as smf
 import matplotlib.pyplot as plt
 import numpy as np
+from patsy import bs
 
 def standardize_cpt(series: pd.Series) -> pd.Series:
     def _to_str(x):
@@ -80,10 +81,7 @@ def predict_simple(result, pred_df):
 
     for i in range(len(pred_df)):
         cpt = pred_df.iloc[i]["CPT1"] 
-
         re = result.random_effects[cpt]
-
-        # random intercept + random slope * year
         rand = re["Group"] 
 
         preds.append(pred.iloc[i] + rand)
