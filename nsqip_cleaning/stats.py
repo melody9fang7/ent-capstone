@@ -184,7 +184,7 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
         Patch(facecolor='steelblue', alpha=0.5, label='IQR (25th–75th pct)'),
     ]
     fig.legend(handles=legend_elements, fontsize=20, loc='lower center',
-               ncol=4, bbox_to_anchor=(0.5, 0.0), borderpad=0.6)
+               ncol=4,  borderpad=0.6)
 
     plt.tight_layout(rect=[0, 0.04, 1, 0.95])
 
@@ -324,13 +324,10 @@ def plot_optime_boxplots_poster(
     plt.savefig('finalfigs/optime_boxplots_poster.png', dpi=300, bbox_inches='tight')
     plt.savefig('finalfigs/optime_boxplots_poster.svg', bbox_inches='tight')
     plt.show()
-
 def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
-    """
-    
-    """
     solo = filter_solo_cases(data).dropna(subset=['OPTIME', 'PUFYEAR'])
     solo['CPT'] = standardize_cpt(solo['CPT'])
+    solo['PUFYEAR'] = solo['PUFYEAR'].astype(int)  # keep as int for proper axis spacing
 
     group_order = sorted(solo['CPT GROUP'].dropna().unique())
     cpt_order = (
@@ -342,13 +339,12 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
     n_cols = 2
     n_rows = -(-len(group_order) // n_cols)
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, n_rows * 5))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(28, n_rows * 8))
     axes = axes.flatten()
 
     for ax_idx, group_name in enumerate(group_order):
         ax = axes[ax_idx]
         color_cycle = plt.cm.tab10.colors
-
         chunk = cpt_order[cpt_order['CPT GROUP'] == group_name]['CPT'].tolist()
 
         for color_idx, cpt in enumerate(chunk):
@@ -376,53 +372,58 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
 
             print(f"CPT {cpt}: slope={model.coef_[0]:.2f} min/year, R²={r_squared:.2f}")
 
-            # actual data: dots connected by solid line
             ax.plot(
-                df_grouped['PUFYEAR'],
-                y,
-                color=color,
-                linewidth=1.5,
-                marker='o',
-                markersize=4,
-                alpha=0.7,
-                zorder=2
+                df_grouped['PUFYEAR'], y,
+                color=color, linewidth=1.5,
+                marker='o', markersize=5,
+                alpha=0.7, zorder=2
             )
 
-            # regression: dashed line + label
             ax.plot(
-                df_grouped['PUFYEAR'],
-                y_pred,
-                color=color,
-                linewidth=2,
+                df_grouped['PUFYEAR'], y_pred,
+                color=color, linewidth=2.5,
                 linestyle='--',
                 label=f'{cpt} (slope={model.coef_[0]:.2f}, R²={r_squared:.2f})',
                 zorder=3
             )
 
-        ax.set_title(f'Group: {group_name}', fontsize=10, fontweight='bold')
-        ax.set_xlabel('Year', fontsize=9)
-        ax.set_ylabel('Avg Operative Time (min)', fontsize=9)
-        ax.legend(fontsize=7, loc='upper left')
+        # x ticks: only show every other year to avoid crowding
+        all_years = sorted(solo['PUFYEAR'].unique())
+        ax.set_xticks(all_years[::2])
+        ax.set_xticklabels([str(y) for y in all_years[::2]], fontsize=18, rotation=45, ha='right')
+        ax.tick_params(axis='y', labelsize=16)
+
+        ax.set_title(f'Group: {group_name}', fontsize=22, fontweight='bold', pad=10)
+        ax.set_xlabel('Year', fontsize=20, labelpad=8)
+        ax.set_ylabel('Avg Operative Time (min)', fontsize=20, labelpad=8)
         ax.grid(True, alpha=0.3)
+
+        ax.legend(
+                fontsize=16, loc='upper left',
+                framealpha=0.9,
+                borderpad=0.4,
+                labelspacing=0.3,
+            )
 
     for ax in axes[len(group_order):]:
         ax.set_visible(False)
 
     fig.suptitle(
         'Trend of Average Operative Time by CPT Code (solo cases)\nDashed = linear regression, Solid = observed mean',
-        fontsize=13
+        fontsize=30, fontweight='bold'
     )
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
     plt.savefig('finalfigs/optime_linreg_subplots_cptgrouped.png', dpi=300, bbox_inches='tight')
-    plt.savefig('finalfigs/optime_linreg_subplots_cptgrouped.svg',  bbox_inches='tight')
+    plt.savefig('finalfigs/optime_linreg_subplots_cptgrouped.svg', bbox_inches='tight')
     plt.show()
 
+    
 def main():
     df = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/nsqip/combined_filtered.csv")
-    resultsdf = ttest_optime_by_cpt(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")
-    #plot_optime_linreg(df, 0)
-    plot_optime_boxplots(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
+    #resultsdf = ttest_optime_by_cpt(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")
+    plot_optime_linreg(df, 0)
+    #plot_optime_boxplots(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
     #plot_optime_boxplots_poster(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
 if __name__ == "__main__":
     main()
