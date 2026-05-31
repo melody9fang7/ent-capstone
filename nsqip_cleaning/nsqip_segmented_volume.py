@@ -240,8 +240,7 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
                        outcome_name, ylabel, filename, cpt_list):
     """
     Volume segmented regression plots for selected CPTs.
-    3 columns x 2 rows
-    matches operative time style.
+    3 columns x 2 rows, matches operative time style.
     """
     cpts_to_plot = [cpt for cpt in cpt_list if cpt in data_dict]
     
@@ -254,6 +253,9 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 12))
     axes = axes.flatten()
+    
+    # For CSV export
+    export_rows = []
     
     for idx, cpt in enumerate(cpts_to_plot):
         ax = axes[idx]
@@ -269,10 +271,20 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
         break_years = reval_map.get(cpt, [])
         yearly_means = data.groupby('YEAR')['VALUE'].mean()
         
+        # Build export rows
+        for year, val in yearly_means.items():
+            export_rows.append({
+                'CPT': cpt,
+                'Group': group,
+                'Year': int(year),
+                'Yearly_Mean': round(val, 6),
+                'Break_Years': ', '.join(str(b) for b in break_years) if break_years else '',
+            })
+        
         # Plot observed data 
         ax.plot(yearly_means.index, yearly_means.values, 'o-', 
-               color='steelblue', alpha=0.8, markersize=10, linewidth=2.5, 
-               label='Observed Mean Volume', zorder=3)
+               color='steelblue', alpha=0.8, markersize=10, linewidth=3, 
+               zorder=3)
         
         # Fit and plot segmented regression 
         try:
@@ -284,32 +296,32 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
                 X_pred[f'TIME_SINCE_{by}'] = np.maximum(0, years_range - by)
             predictions = model.predict(X_pred)
             ax.plot(years_range, predictions, '-', color='#c0392b', 
-                   linewidth=3, alpha=0.9, label='Regression', zorder=2)
+                   linewidth=3, alpha=0.9, zorder=4)
         except:
             pass
         
-        #  Breakpoint lines 
+        # Breakpoint lines
         for by in break_years:
             color = get_line_color(cpt, by, direction_map)
-            ax.axvline(x=by, color=color, linestyle='--', linewidth=2, alpha=0.7, zorder=1)
+            ax.axvline(x=by, color=color, linestyle='--', linewidth=3, alpha=0.7, zorder=1)
         
-        #  Stats annotation 
+        # Stats annotation
         row = results_df[results_df['CPT'] == cpt] if len(results_df) > 0 else None
         if row is not None and len(row) > 0:
             f_p = row.iloc[0]['F_Pvalue']
             sig = '*' if row.iloc[0]['Breakpoints_Significant'] else ''
             if not FOR_SINA:
                 ax.text(0.98, 0.96, f'F-test p={f_p:.4f}{sig}\nn={len(data):,}', 
-                    transform=ax.transAxes, va='top', ha='right', fontsize=14,
-                    bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
+                       transform=ax.transAxes, va='top', ha='right', fontsize=14,
+                       bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
                                 edgecolor='gray', alpha=0.9))
         
-        #  Y-axis scaling 
+        # Y-axis scaling
         y_min_data = yearly_means.values.min()
         y_max_data = yearly_means.values.max()
         y_range = y_max_data - y_min_data
         
-        if y_range < 0.01:  # Very small range
+        if y_range < 0.01:
             y_center = (y_max_data + y_min_data) / 2
             y_min = max(0, y_center - 0.005)
             y_max = y_center + 0.005
@@ -320,34 +332,53 @@ def plot_specific_cpts(data_dict, results_df, reval_map, direction_map, magnitud
         
         ax.set_ylim(y_min, y_max)
         
-        # Formatting 
+        # Formatting
         ax.set_xlabel('Year', fontsize=16, fontweight='bold')
         ax.set_ylabel(ylabel, fontsize=16, fontweight='bold')
         ax.set_title(f'CPT {cpt}: {group}', fontsize=20, fontweight='bold')
-        ax.tick_params(labelsize=14)
+        ax.tick_params(labelsize=16)
         ax.grid(True, alpha=0.3, linewidth=0.8)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         
-        # Integer x-axis
         x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
         tick_step = max(1, (x_max - x_min) // 5)
         ax.set_xticks(range(x_min, x_max + 1, tick_step))
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
-        
-        ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
     
     # Hide unused panels
     for idx in range(len(cpts_to_plot), len(axes)):
         axes[idx].set_visible(False)
     
-    plt.suptitle(f'Segmented Regression: {outcome_name}\n'
-                f'(Green = wRVU Increase, Red = wRVU Decrease)',
-                fontsize=22, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
-    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white', format='svg')
+    # Legend at bottom
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color='steelblue', marker='o', markersize=10, linewidth=3, 
+               label='Observed Mean'),
+        Line2D([0], [0], color='#c0392b', linewidth=3, label='Regression'),
+        Line2D([0], [0], color='green', linestyle='--', linewidth=3, label='wRVU Increase'),
+        Line2D([0], [0], color='red', linestyle='--', linewidth=3, label='wRVU Decrease'),
+    ]
+    
+    fig.legend(handles=legend_handles, loc='lower center', ncol=4, 
+              fontsize=16, frameon=True, bbox_to_anchor=(0.5, -0.02))
+    
+    plt.suptitle(f'Segmented Regression: {outcome_name}',
+                fontsize=24, fontweight='bold', y=1.01)
+    
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.92, bottom=0.10, 
+                        hspace=0.35, wspace=0.25)
+    
+    plt.savefig(filename, dpi=300, facecolor='white', format='svg', bbox_inches="tight", pad_inches=0.3)
     plt.show()
+    
+    # Export to CSV
+    export_df = pd.DataFrame(export_rows)
+    csv_filename = filename.replace('.svg', '_data.csv')
+    export_df.to_csv(csv_filename, index=False)
+    
     print(f"Saved: {filename}")
+    print(f"Saved: {csv_filename}")
 
 def export_reval_maps(reval_map, direction_map, magnitude_map, filename='reval_breakpoints.csv'):
     # really only needed to run this once so that we can project revaluation years onto MNPB data
