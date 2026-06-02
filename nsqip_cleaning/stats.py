@@ -65,7 +65,7 @@ def ttest_optime_by_cpt(data: pd.DataFrame, reference_csv: str, alpha: float = 0
 
     print(f"{results_df['significant'].sum()}/{len(results_df)} codes significant at p<{alpha}")
     print(f"{results_df['significant_bonferroni'].sum()}/{len(results_df)} codes significant after Bonferroni correction")
-    results_df.to_csv("prelim_29_stats_results_optime.csv", index=False)
+    results_df.to_csv("nsqip_stats_results_optime.csv", index=False)
     return results_df
 
 def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.DataFrame = None):
@@ -73,6 +73,13 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
     boxplot of mean operative time compared to reference mean for each CPT code, given the csv
     of statistics testing results
     """
+    plt.rcParams['axes.linewidth'] = 3
+    plt.rcParams['xtick.major.width'] = 2.5
+    plt.rcParams['ytick.major.width'] = 2.5
+    plt.rcParams['xtick.major.size'] = 6
+    plt.rcParams['ytick.major.size'] = 6
+    plt.rcParams['grid.linewidth'] = 1.5
+
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT'])
     ref = ref.set_index('CPT')['Intra Time']
@@ -123,8 +130,11 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
             showfliers=False,
             labels=[str(c) for c in chunk],
             meanprops=dict(marker='^', markerfacecolor='green',
-                           markeredgecolor='green', markersize=10),
-            medianprops=dict(color='orange', linewidth=2.5),
+                           markeredgecolor='green', markersize=15),
+            medianprops=dict(color='orange', linewidth=3),
+            boxprops=dict(linewidth=2),
+            whiskerprops=dict(linewidth=2),
+            capprops=dict(linewidth=2),
         )
 
         for patch in bp['boxes']:
@@ -325,6 +335,13 @@ def plot_optime_boxplots_poster(
     plt.savefig('finalfigs/optime_boxplots_poster.svg', bbox_inches='tight')
     plt.show()
 def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
+    plt.rcParams['axes.linewidth'] = 3
+    plt.rcParams['xtick.major.width'] = 2.5
+    plt.rcParams['ytick.major.width'] = 2.5
+    plt.rcParams['xtick.major.size'] = 6
+    plt.rcParams['ytick.major.size'] = 6
+    plt.rcParams['grid.linewidth'] = 1.5
+
     solo = filter_solo_cases(data).dropna(subset=['OPTIME', 'PUFYEAR'])
     solo['CPT'] = standardize_cpt(solo['CPT'])
     solo['PUFYEAR'] = solo['PUFYEAR'].astype(int)  # keep as int for proper axis spacing
@@ -374,14 +391,14 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
 
             ax.plot(
                 df_grouped['PUFYEAR'], y,
-                color=color, linewidth=1.5,
+                color=color, linewidth=2.5,
                 marker='o', markersize=5,
                 alpha=0.7, zorder=2
             )
 
             ax.plot(
                 df_grouped['PUFYEAR'], y_pred,
-                color=color, linewidth=2.5,
+                color=color, linewidth=3,
                 linestyle='--',
                 label=f'{cpt} (slope={model.coef_[0]:.2f}, R²={r_squared:.2f})',
                 zorder=3
@@ -421,9 +438,8 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
     
 def main():
     df = pd.read_csv("C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/nsqip/combined_filtered.csv")
-    #resultsdf = ttest_optime_by_cpt(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")
+    resultsdf = ttest_optime_by_cpt(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv")
     plot_optime_linreg(df, 0)
     #plot_optime_boxplots(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
-    #plot_optime_boxplots_poster(df, "C:/Users/melod/Desktop/prog/170a/proj/ent-capstone/data/final_CPT_1.csv", resultsdf)
 if __name__ == "__main__":
     main()
