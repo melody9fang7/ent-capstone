@@ -1,3 +1,14 @@
+"""
+Script to merge the cleaned HCUP datasets into a single file.
+
+Input:
+All of the cleaned csv files that is in the cleaned/ directory. Make sure
+files are in the directory (create the directory if it doesn't exist, or change the path),
+and no other csv files are present.
+
+Output: HCUP_merged.csv
+"""
+
 import pandas as pd
 import glob
 
@@ -24,4 +35,4 @@ for f in files:
 
         first_write = False
 
-print("Done :D")
+print("Done.")

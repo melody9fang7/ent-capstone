@@ -1,5 +1,20 @@
+"""
+Script to clean and standardize the 2016 and 2017 HCUP dataset. Same logic
+as 2008.
+
+Input: 
+A csv file exported from IBM SPSS Statistics. 
+
+Output:
+NY_SASD_2016_CORE_CLEANED.csv and NY_SASD_2017_CORE_CLEANED.csv
+
+Replace the output file with the appropriate year. This file works for both
+2016 and 2017 since they have the same structure.
+"""
+
 import pandas as pd
 import numpy as np
+from column_order import COL_ORDER
 
 # used for both 2016 and 2017
 input_file = "NY_SASD_2017_CORE.csv"
@@ -118,7 +133,8 @@ for i, chunk in enumerate(
 
     chunk["AYEAR"] = 2017
 
-    chunk = chunk[sorted(chunk.columns)]
+    #chunk = chunk[sorted(chunk.columns)]
+    chunk = chunk[COL_ORDER]
 
     chunk.to_csv(
         output_file,

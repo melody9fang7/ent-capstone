@@ -54,7 +54,10 @@ def ttest_optime_by_cpt(data: pd.DataFrame, reference_csv: str, alpha: float = 0
 
     solo = filter_solo_cases(data).dropna(subset=['ORTIME'])
     solo['CPT'] = standardize_cpt(solo['CPT1'])
+
     solo['CPT GROUP'] = solo['CPT'].map(group_map)
+    solo = solo.dropna(subset=['CPT GROUP'])
+
     solo = solo.dropna(thresh=10, axis=1)
     cpts = sorted(solo['CPT'].unique())
 
@@ -98,6 +101,13 @@ def ttest_optime_by_cpt(data: pd.DataFrame, reference_csv: str, alpha: float = 0
     return results_df
 
 def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.DataFrame = None):
+    plt.rcParams['axes.linewidth'] = 3
+    plt.rcParams['xtick.major.width'] = 2.5
+    plt.rcParams['ytick.major.width'] = 2.5
+    plt.rcParams['xtick.major.size'] = 6
+    plt.rcParams['ytick.major.size'] = 6
+    plt.rcParams['grid.linewidth'] = 1.5
+
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT Code'])
     ref = ref.set_index('CPT')['Intra Time']
@@ -124,7 +134,7 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
     n_groups = len(group_order)
     n_cols = 2
     n_rows = -(-n_groups // n_cols)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(22, n_rows * 8))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(26, n_rows * 9))
     axes = axes.flatten()
 
     sig_lookup = {}
@@ -150,8 +160,11 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
             showfliers=False,
             labels=[str(c) for c in chunk],
             meanprops=dict(marker='^', markerfacecolor='green',
-                           markeredgecolor='green', markersize=8),
-            medianprops=dict(color='orange', linewidth=2),
+                           markeredgecolor='green', markersize=15),
+            medianprops=dict(color='orange', linewidth=3),
+            boxprops=dict(linewidth=2),
+            whiskerprops=dict(linewidth=2),
+            capprops=dict(linewidth=2),
         )
 
         for patch in bp['boxes']:
@@ -161,6 +174,8 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
         ax.autoscale()
         y_min, y_max = ax.get_ylim()
         y_range = y_max - y_min
+        ax.set_ylim(y_min - y_range * 0.12, y_max)
+        y_min_new = y_min - y_range * 0.12
 
         for cpt_idx, cpt in enumerate(chunk):
             x_pos = cpt_idx + 1
@@ -169,7 +184,7 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
                 ref_mean = ref[cpt]
                 ax.plot(
                     [x_pos - 0.4, x_pos + 0.4], [ref_mean, ref_mean],
-                    color='red', linewidth=2, linestyle='--', zorder=5,
+                    color='red', linewidth=2.5, linestyle='--', zorder=5,
                     label='RUC reference mean' if cpt_idx == 0 else None
                 )
 
@@ -178,8 +193,8 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
                 sign = '+' if diff >= 0 else ''
                 ax.annotate(
                     f'{sign}{diff:.0f}m',
-                    xy=(x_pos, y_min + y_range * 0.01),
-                    ha='center', va='bottom', fontsize=11,
+                    xy=(x_pos, y_min_new + y_range * 0.02),
+                    ha='center', va='bottom', fontsize=18,
                     color='darkgreen' if sig_lookup.get(cpt, True) else 'firebrick',
                     annotation_clip=False
                 )
@@ -187,34 +202,33 @@ def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.
         x_labels = []
         for cpt in chunk:
             star = '*' if sig_lookup.get(cpt, False) else ''
-            x_labels.append(f'{cpt}{star}\nN = {n_lookup.get(cpt, False)}')
+            x_labels.append(f'{cpt}{star}\nN = {n_lookup.get(cpt, "")}')
 
-        ax.set_xticklabels(x_labels, fontsize=13)
-
-        ax.set_title(f'Group: {group_name}', fontsize=18, fontweight='bold')
-        ax.set_ylabel('Operative Time (min)', fontsize=16)
-        ax.set_xlabel('CPT Code', fontsize=16)
+        ax.set_xticklabels(x_labels, fontsize=18, linespacing = 1.4)
+        ax.tick_params(axis='y', labelsize=18)
+        ax.set_title(f'Group: {group_name}', fontsize=24, fontweight='bold', pad = 12)
+        ax.set_ylabel('Operative Time (min)', fontsize=24, labelpad = 10)
+        ax.set_xlabel('CPT Code', fontsize=24, labelpad = 18)
         ax.grid(True, alpha=0.3, axis='y')
-        ax.tick_params(axis='y', labelsize=13)
 
     for ax in axes[n_groups:]:
         ax.set_visible(False)
 
     legend_elements = [
-    Line2D([0], [0], color='red', linewidth=2, linestyle='--', label='RUC reference mean'),
+    Line2D([0], [0], color='red', linewidth=2.5, linestyle='--', label='RUC reference mean'),
     Line2D([0], [0], marker='^', color='w', markerfacecolor='green',
-           markersize=9, label='Observed mean'),
-    Line2D([0], [0], color='orange', linewidth=2, label='Observed median'),
+           markersize=11, label='Observed mean'),
+    Line2D([0], [0], color='orange', linewidth=2.5, label='Observed median'),
     Patch(facecolor='steelblue', alpha=0.5, label='IQR (25th–75th pct)'),
     ]
-    fig.legend(handles=legend_elements, fontsize=13, loc='lower center',
-            ncol=4, bbox_to_anchor=(0.5, 0.0), borderpad=0.5)
+    fig.legend(handles=legend_elements, fontsize=20, loc='lower center',
+            ncol=4, borderpad=0.6)
 
     # and update tight_layout to leave room at the bottom for it
-    plt.tight_layout(rect=[0, 0.04, 1, 0.95])
+    plt.tight_layout(rect=[0, 0.04, 1, 0.93]) # 0.93
 
     fig.suptitle(
-        'Operative Time by CPT Code (solo cases only)\n* = significant after Bonferroni correction', fontsize=20, fontweight='bold'
+        'Operative Time by CPT Code (solo cases only)\n* = significant after Bonferroni correction', fontsize=30, fontweight='bold'
     )
     plt.savefig('optime_boxplots_cptgrouped.png', dpi=300, bbox_inches='tight')
     plt.savefig('optime_boxplots_grouped.svg', dpi=300, bbox_inches='tight', format="svg")
@@ -225,7 +239,7 @@ def plot_optime_boxplots_poster(
     reference_csv: str,
     results_df: pd.DataFrame,
     top_n: int = 5,
-    figsize: tuple = (10, 7) # changed to 10, 7
+    figsize: tuple = (8, 6) # changed to 10, 7
 ):
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT Code'])
@@ -279,8 +293,8 @@ def plot_optime_boxplots_poster(
         showfliers=False,
         vert=True,
         meanprops=dict(marker='^', markerfacecolor='green',
-                       markeredgecolor='green', markersize=10), # changed to 10
-        medianprops=dict(color='orange', linewidth=2.5), # changed to 2.5
+                       markeredgecolor='green', markersize=7), # changed to 10
+        medianprops=dict(color='orange', linewidth=2), # changed to 2.5
     )
 
     for patch in bp['boxes']:
@@ -307,7 +321,7 @@ def plot_optime_boxplots_poster(
             ax.annotate(
                 f'{sign}{diff:.0f}m',
                 xy=(x_pos, y_min + y_range * 0),
-                ha='center', va='bottom', fontsize=10, # changed to 10
+                ha='center', va='bottom', fontsize=8, # changed to 10
                 color='darkgreen' if diff > 0 else 'firebrick',
                 annotation_clip=False
             )
@@ -320,13 +334,13 @@ def plot_optime_boxplots_poster(
         n = n_lookup.get(cpt, '')
         x_labels.append(f'{cpt}{star}\nn={n}\n{group}')
 
-    ax.set_xticklabels(x_labels, fontsize=16, fontweight = 'bold') # changed to 16
-    ax.tick_params(axis='y', labelsize=14) # changed to 14
-    ax.set_ylabel('Operative Time (min)', fontsize=16, fontweight = 'bold') # changed to 16
+    ax.set_xticklabels(x_labels, fontsize=10) # changed to 16
+    #ax.tick_params(axis='y', labelsize=14) # changed to 14
+    ax.set_ylabel('Operative Time (min)', fontsize=18) # changed to 16
     ax.set_xlabel('')
     ax.set_title( 
-        'HCUP Top 2 CPTs:\nOperative Time vs. RUC Reference', # changed to two lines
-        fontsize=22, fontweight='bold' # and to 22
+        'HCUP Top 5 CPTs:\nOperative Time vs.\n RUC Reference', # changed to two lines
+        fontsize=20, fontweight='bold' # and to 22
     )
     ax.grid(True, alpha=0.3, axis='y')
 
@@ -337,15 +351,22 @@ def plot_optime_boxplots_poster(
         Line2D([0], [0], color='orange', linewidth=2, label='Median'), 
         Patch(facecolor='steelblue', alpha=0.5, label='IQR'),
     ]
-    fig.legend(handles=legend_elements, fontsize=11, loc='lower center', # changed to fontsize 11
-               ncol=2, bbox_to_anchor=(0.5, 0.01), borderpad=0.5) # changed anchor to 0.0 -> 0.01
+    fig.legend(handles=legend_elements, fontsize=7, loc='lower center', # changed to fontsize 11
+               ncol=2, bbox_to_anchor=(0.5, 0.0), borderpad=0.5) # changed anchor to 0.0 -> 0.01
 
-    plt.tight_layout(rect=[0, 0.08, 1, 1]) # 0.06 -> 0.08
+    plt.tight_layout(rect=[0, 0.06, 1, 1]) # 0.06 -> 0.08
     plt.savefig('optime_boxplots_poster_hcup.png', dpi=300, bbox_inches='tight')
     plt.savefig('optime_boxplots_poster_hcup.svg', bbox_inches='tight')
     plt.show()
 
 def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
+    plt.rcParams['axes.linewidth'] = 3
+    plt.rcParams['xtick.major.width'] = 2.5
+    plt.rcParams['ytick.major.width'] = 2.5
+    plt.rcParams['xtick.major.size'] = 6
+    plt.rcParams['ytick.major.size'] = 6
+    plt.rcParams['grid.linewidth'] = 1.5
+
     solo = filter_solo_cases(data).dropna(subset=['ORTIME', 'AYEAR'])
     solo['CPT'] = standardize_cpt(solo['CPT1'])
 
@@ -361,7 +382,7 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
     n_cols = 2
     n_rows = -(-len(group_order) // n_cols)
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, n_rows * 5))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(28, n_rows * 8))
     axes = axes.flatten()
 
     for ax_idx, group_name in enumerate(group_order):
@@ -395,14 +416,25 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
 
             print(f"CPT {cpt}: slope={model.coef_[0]:.2f} min/year, R²={r_squared:.2f}")
 
+           
+            plt.figure(figsize=(8, 6)) 
+            residuals = y - y_pred
+            plt.scatter(y_pred, residuals, color='blue', alpha=0.6)
+            plt.axhline(y=0, color='red', linestyle='--', linewidth=2)
+            plt.xlabel('Predicted Operative Time (min)', fontsize=14)
+            plt.ylabel('Residuals (Actual - Predicted)', fontsize=14)
+            plt.title(f'Linearity Check: Residuals for CPT {cpt}', fontsize=16)
+            plt.grid(True, alpha=0.3)
+            plt.show()
+        
             # actual data: dots connected by solid line
             ax.plot(
                 df_grouped['AYEAR'],
                 y,
                 color=color,
-                linewidth=1.5,
+                linewidth=2.5,
                 marker='o',
-                markersize=4,
+                markersize=5,
                 alpha=0.7,
                 zorder=2
             )
@@ -412,17 +444,26 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
                 df_grouped['AYEAR'],
                 y_pred,
                 color=color,
-                linewidth=2,
+                linewidth=3,
                 linestyle='--',
                 label=f'{cpt} (slope={model.coef_[0]:.2f}, R²={r_squared:.2f})',
                 zorder=3
             )
 
-        ax.set_title(f'Group: {group_name}', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Year', fontsize=11)
-        ax.set_ylabel('Avg Operative Time (min)', fontsize=11)
-        ax.tick_params(axis='both', labelsize=9)
-        ax.legend(fontsize=8, loc='upper left')
+        all_years = sorted(solo['AYEAR'].unique())
+        ax.set_xticks(all_years[::2])
+        ax.set_xticklabels([str(y) for y in all_years[::2]], fontsize=18)
+        ax.tick_params(axis='y', labelsize=16)
+
+        ax.set_title(f'Group: {group_name}', fontsize=22, fontweight='bold', pad=10)
+        ax.set_xlabel('Year', fontsize=20, labelpad = 8)
+        ax.set_ylabel('Avg Operative Time (min)', fontsize=20, labelpad = 8)
+        ax.legend(
+                fontsize=16, loc='upper left',
+                framealpha=0.9,
+                borderpad=0.4,
+                labelspacing=0.3,
+            )
         ax.grid(True, alpha=0.3)
 
     for ax in axes[len(group_order):]:
@@ -430,10 +471,10 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
 
     fig.suptitle(
         'Trend of Average Operative Time by CPT Code (solo cases)\nDashed = linear regression, Solid = observed mean',
-        fontsize=14
+        fontsize=30, fontweight = 'bold'
     )
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
     plt.savefig('optime_linreg_subplots_cptgrouped.png', dpi=300, bbox_inches='tight')
     plt.savefig('optime_linreg_subplots_cptgrouped.svg',  bbox_inches='tight')
     plt.show()
@@ -441,11 +482,11 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
 def main():
     df = pd.read_csv("HCUP_filtered_172_cleaned.csv")
     #df_volume = pd.read_csv("hcup_volume_table.csv")
-    resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv")
+    #resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv")
     #plot_optime_boxplots(df, "filtered_sina2.csv", resultsdf)
     #plot_volume(df_volume)
-    plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
-    #plot_optime_linreg(df)
+    #plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
+    plot_optime_linreg(df)
 
 if __name__ == "__main__":
     main()

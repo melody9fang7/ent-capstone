@@ -1,9 +1,14 @@
+"""
+Script to filter the merged HCUP dataset and prepare it for
+operative time analysis.
+"""
 import pandas as pd
 
-# clean cpt codes
+# Functions for filtering the merged HCUP dataset. 
+
 def standardize_cpt(series: pd.Series) -> pd.Series:
     """
-    forces formatting of cpt codes
+    Forces formatting of CPT codes.
     """
     def _to_str(x):
         if pd.isna(x):
@@ -42,7 +47,7 @@ def drop_columns():
 
     return drop_cols
 
-def filter_chunk(chunk: pd.DataFrame, cpt_codes: set, drop_cols: list) -> pd.DataFrame:
+def filter_chunk(chunk: pd.DataFrame, cpt_codes: set, drop_cols: list, require_valid_ortime : bool = False) -> pd.DataFrame:
     """
     Filters a chunk of merged dataset to only include solo cases within the
     valid year range, dropping any unnecessary columns.
@@ -54,6 +59,12 @@ def filter_chunk(chunk: pd.DataFrame, cpt_codes: set, drop_cols: list) -> pd.Dat
     chunk = chunk[chunk["AYEAR"] >= 2008]
     chunk = chunk[chunk["NCPT"] == 1]
 
+    # if you want to include invalid (missing or <= 0) ortime or not
+    if require_valid_ortime:
+        chunk["ORTIME"] = pd.to_numeric(chunk["ORTIME"], errors="coerce")
+        chunk = chunk.dropna(subset=["ORTIME"])
+        chunk = chunk[chunk["ORTIME"] > 0]
+
     chunk["CPT1"] = standardize_cpt(chunk["CPT1"])
     #chunk = chunk[chunk["CPT1"] != "nan"] # filter out any "nan" that came from standardization
 
@@ -64,7 +75,13 @@ def filter_chunk(chunk: pd.DataFrame, cpt_codes: set, drop_cols: list) -> pd.Dat
 
     return chunk
 
-def filter_hcup(hcup_merged, cpt_list, output_file, chunk_size = 150000):
+def filter_hcup(hcup_merged, cpt_list, output_file, require_valid_ortime = False, chunk_size = 150000):
+    """
+    Filters the merged HCUP dataset.
+    - Only keeps solo cases (NCPT = 1) with AYEAR >= 2008. 
+    - Keeps rows where CPT1 (primary procedure) is in the ENT CPT code list. 
+    - Drops any unnecessary columns.
+    """
     cpt_codes = load_cpt_list(cpt_list)
     drop_cols = drop_columns()
     
@@ -73,7 +90,7 @@ def filter_hcup(hcup_merged, cpt_list, output_file, chunk_size = 150000):
 
     print("Starting filtering...")
     for chunk in pd.read_csv(hcup_merged, chunksize = chunk_size, low_memory = False):
-        filtered_chunk = filter_chunk(chunk, cpt_codes, drop_cols)
+        filtered_chunk = filter_chunk(chunk, cpt_codes, drop_cols, require_valid_ortime = require_valid_ortime)
 
         kept_rows += len(filtered_chunk)
 
@@ -84,29 +101,6 @@ def filter_hcup(hcup_merged, cpt_list, output_file, chunk_size = 150000):
 
     print(f"\nFiltering DONE.")
     print(f"Total rows kept: {kept_rows}")
-
-# main filtering from dataset done, from now on is additional filtering
-
-def filter_ent_codes(excel_file, cpt_list_file, output_csv, min_count = 100):
-    """
-    Filters ENT CPT excel file using CPT codes from cpt_counts.csv where Count > min_count. Creates a filtered
-    version with valid CPT codes.
-    """
-    df = pd.read_excel(excel_file)
-    cpt_df = pd.read_csv(cpt_list_file)
-
-    cpt_df = cpt_df[cpt_df["Count"] > min_count]
-    keep_cpts = set(cpt_df["CPT1"].fillna("").astype(str).str.replace(".0", "", regex=False).str.strip())
-    df["CPT Code"] = (df["CPT Code"].fillna("").astype(str).str.replace(".0", "", regex=False).str.strip())
-
-    filtered_df = df[df["CPT Code"].isin(keep_cpts)]
-    filtered_df.to_csv(output_csv, index=False)
-
-    print("Original rows:", len(df))
-    print("Filtered rows:", len(filtered_df))
-    print("Done")
-
-    return filtered_df
 
 def save_cpt_counts(input_file, output_file):
     """
@@ -131,6 +125,35 @@ def save_cpt_counts(input_file, output_file):
     print("Unique CPTs:", count_df["CPT1"].nunique())
     print(f"Saved counts to {output_file}")
     return count_df
+
+
+# Filter the ENT CPT excel file. This is created a filtered version that will be used for
+# later analysis. This filtering is done after HCUP filtering to keep only CPT codes
+# that can actually be used for analysis.
+
+def filter_ent_codes(excel_file, cpt_list_file, output_csv, min_count = 100):
+    """
+    Filters ENT CPT excel file using CPT codes from cpt_counts.csv where Count > min_count. Creates a filtered
+    version with valid CPT codes.
+    """
+    df = pd.read_excel(excel_file)
+    cpt_df = pd.read_csv(cpt_list_file)
+
+    cpt_df = cpt_df[cpt_df["Count"] > min_count]
+    keep_cpts = set(cpt_df["CPT1"].fillna("").astype(str).str.replace(".0", "", regex=False).str.strip())
+    df["CPT Code"] = (df["CPT Code"].fillna("").astype(str).str.replace(".0", "", regex=False).str.strip())
+
+    filtered_df = df[df["CPT Code"].isin(keep_cpts)]
+    filtered_df.to_csv(output_csv, index=False)
+
+    print("Original rows:", len(df))
+    print("Filtered rows:", len(filtered_df))
+    print("Done")
+
+    return filtered_df
+
+# Additional functions for table creation and wRVU extraction from NSQIP dataset.
+# Not used for filtering HCUP dataset, optional to run.
 
 # table creation (figure 1)
 def create_hcup_table(hcup_file, sina_file, output_file):
@@ -259,17 +282,45 @@ def search_for_other_counts(hcup_file, output_file):
     return results
 
 def main():
-    hcup_merged = "HCUP_merged_extended.csv"
-    hcup_not_clean = "HCUP_filtered_172.csv"
-    nsqip = "combined_filtered_930.csv"
-    cpt_list = "ENT Codes since 1997.xlsx"
-    output_file = "hcup_nsqip_counts.csv"
+    # ------------------------
+    # HCUP filtering pipeline
+    # ------------------------
 
-    #filter_hcup(hcup_merged, cpt_list, output_file)
-    #filter_ent_codes(excel_file="ENT Codes since 1997.xlsx",cpt_list_file="hcup_filtered_172_counts.csv",output_csv="filtered_sina2.csv", min_count=100)
-    #create_hcup_table("HCUP_filtered_172_cleaned.csv", "filtered_sina2.csv", "cpt_list.csv")
-    #extract_wrvu("cpt_list.csv", "combined_filtered_930.csv", "cpt_list_reformed.csv")
-    search_for_other_counts(hcup_not_clean, output_file)
+    # input files
+    hcup_merged = "HCUP_merged_extended.csv" # output of merge.py
+    ent_codes = "ENT Codes since 1997.xlsx" # excel file with RUC data, with the CPT codes of interest
+    
+    # output files
+    hcup_filtered = "HCUP_filtered_172.csv"
+    hcup_counts = "hcup_filtered_172_counts.csv"
+    filtered_ent_codes = "filtered_sina2.csv"
+
+    # filter merged HCUP dataset
+    filter_hcup(hcup_merged = hcup_merged, cpt_list = ent_codes, output_file = hcup_filtered, require_valid_ortime = True)
+
+    # count CPT codes in filtered HCUP dataset
+    save_cpt_counts(input_file = hcup_filtered, output_file = hcup_counts)
+
+    # filter ENT CPT code excel file to get final list of CPT codes for analysis
+    filter_ent_codes(excel_file = ent_codes, cpt_list_file = hcup_counts, output_csv = filtered_ent_codes, min_count = 100)
+
+    # ------------------
+    # Optional analysis.
+    # ------------------
+
+    #table_output = "table1_hcup.csv"
+    #nsqip_file = "combined_filtered_930.csv"
+    #table_output_with_wrvu = "table1_hcup_wrvu.csv"
+    #nsqip_cpt_count = "hcup_nsqip_counts.csv"
+
+    # create table for figure 1
+    #create_hcup_table(hcup_file = hcup_filtered, sina_file = filtered_ent_codes, output_file = table_output)
+
+    # extract wRVU values from NSQIP
+    #extract_wrvu(table_file = table_output, nsqip_file = nsqip_file, output_file = table_output_with_wrvu)
+
+    # check for counts of NSQIP unique CPTs in HCUP dataset
+    #search_for_other_counts(hcup_file = hcup_filtered, output_file = nsqip_cpt_count)
 
 if __name__ == "__main__":
     main()
