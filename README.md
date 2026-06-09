@@ -17,16 +17,16 @@ This project analyzes otolaryngology procedure outcomes using NSQIP and HCUP dat
 | File          | Description                                          |
 | ------------- | ---------------------------------------------------- |
 | `README.md`   | Project documentation and usage instructions.        |
-| `mnpb_viz.py` | Generates visualizations used in the final analysis. |
+| `mnpb_viz.py` | Generates visualizations for the MNPB data.          |
 
 ### NSQIP Cleaning (`nsqip_cleaning/`)
 
 | File                        | Description                                     |
 | --------------------------- | ----------------------------------------------- |
 | `data_handling_nsqip.py`    | Cleans and standardizes NSQIP datasets.         |
-| `data_handling_nsqip-p.py`  | Alternative NSQIP preprocessing pipeline.       |
-| `cpt_codes.py`              | Defines or processes ENT CPT code lists.        |
-| `stats.py`                  | Produces descriptive statistics for NSQIP data. |
+| `data_handling_nsqip-p.py`  | Cleans and standardizes NSQIP-P datasets.       |
+| `cpt_codes.py`              | Original code to find and analyze available CPTs.|
+| `stats.py`                  | NSQIP statistical analysis and linear regression.|
 | `mixed_effects.py`          | Mixed-effects regression analysis.              |
 | `nsqip_segmented_lr.py`     | Segmented regression analysis.                  |
 | `nsqip_segmented_volume.py` | Volume-based segmented analysis.                |
@@ -40,7 +40,7 @@ This project analyzes otolaryngology procedure outcomes using NSQIP and HCUP dat
 | `column_order.py`               | Standardizes column ordering across years. |
 | `filtering.py`                  | Filters records to the study population.   |
 | `merge.py`                      | Merges cleaned HCUP datasets.              |
-| `hcup_stats.py`                 | Generates HCUP descriptive statistics.     |
+| `hcup_stats.py`                 | HCUP statistical analysis and linear regression.    |
 | `mixed_effects_hcup.py`         | Mixed-effects modeling on HCUP data.       |
 | `segmented_hcup.py`             | Segmented regression analysis.             |
 | `segmented_hcup_volume.py`      | Volume-based segmented analysis.           |
@@ -112,13 +112,6 @@ python nsqip_cleaning/nsqip_segmented_lr.py
 python hcup_cleaning/mixed_effects_hcup.py
 python hcup_cleaning/segmented_hcup.py
 ```
-
-### Step 5: Generate Visualizations
-
-```bash
-python mnpb_viz.py
-```
-
 ## Manual Steps
 
 1. Obtain licensed NSQIP and HCUP datasets.
