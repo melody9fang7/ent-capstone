@@ -17,7 +17,6 @@ This project analyzes otolaryngology procedure outcomes using NSQIP and HCUP dat
 | File          | Description                                          |
 | ------------- | ---------------------------------------------------- |
 | `README.md`   | Project documentation and usage instructions.        |
-| `mnpb_viz.py` | Generates visualizations for the MNPB data.          |
 
 ### NSQIP Cleaning (`nsqip_cleaning/`)
 
@@ -46,6 +45,13 @@ This project analyzes otolaryngology procedure outcomes using NSQIP and HCUP dat
 | `segmented_hcup_volume.py`      | Volume-based segmented analysis.           |
 | `volume_analysis.py`            | Procedure volume analysis.                 |
 
+### MNPB Cleaning (`mnpb/`)
+| File                            | Description                                |
+| ------------------------------- | ------------------------------------------ |
+| `mnpb_viz.py`                   | Visualize volumes w/o segmented reg.       |
+| `mnpb_volume_segreg.py`         | Volume Segmented regression MNPB data.     |
+| `mnpb_cleaning.py`              | MNPB Cleaning.                             |
+
 ## Data Requirements
 
 This project requires access to:
@@ -71,7 +77,7 @@ ent-capstone/
 │   └── hcup_merged/
 ├── nsqip_cleaning/
 ├── hcup_cleaning/
-└── mnpb_viz.py
+└── mnpb/
 ```
 
 ## Running the Pipeline
