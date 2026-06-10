@@ -28,7 +28,6 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
         dx9_idx = random.randint(0, len(ICD9_OPTIONS) - 1)
         dx10_idx = random.randint(0, len(ICD10_OPTIONS) - 1)
 
-
         los = random.choice([0, 0, 0, 0, 0, 0, 0, 1])
 
         # ORTIME based on CPT 30520
