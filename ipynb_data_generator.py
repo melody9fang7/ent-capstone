@@ -168,7 +168,45 @@ def generate_fake_nsqip(target_file_path: str = 'nsqip_sample_data.csv', num_row
     df = pd.DataFrame(rows)
     df.to_csv(target_file_path, index=False)
 
+def generate_fake_mixed_data(target_file='sample_data/nsqip_mixed_sample.csv', num_rows=2000):
+    """Generate balanced fake panel data for mixed-effects demo."""
+    np.random.seed(42)
+    
+    # 20 increases, 10 decreases — more balanced
+    inc_cpts = [f'50{i:03d}' for i in range(20)]
+    dec_cpts = [f'50{i:03d}' for i in range(20, 30)]
+    all_cpts = inc_cpts + dec_cpts
+    reval_year = 2012
+    
+    rows = []
+    for i in range(num_rows):
+        cpt = np.random.choice(all_cpts)
+        is_dec = 1 if cpt in dec_cpts else 0
+        year = np.random.randint(2006, 2023)
+        
+        # All CPTs have similar baseline volume
+        base_vol = np.random.uniform(0.04, 0.10)
+        
+        # Decreases: modest 15% drop after 2012
+        if is_dec and year >= reval_year:
+            base_vol *= 0.85
+        
+        # Same noise for all
+        volume = base_vol + np.random.normal(0, 0.008)
+        
+        rows.append({
+            'cpt': cpt,
+            'year': year,
+            'year_c': year - reval_year,
+            'post': 1 if year >= reval_year else 0,
+            'volume_rate': max(0.001, volume),
+            'is_decrease': is_dec,
+        })
+    
+    df = pd.DataFrame(rows)
+    df.to_csv(target_file, index=False)
 
 if __name__ == "__main__":
     generate_fake_hcup("sample_data/hcup_sample_data.csv", 1000)
     generate_fake_nsqip('nsqip_sample_data.csv', num_rows=500_000) # maybe change lol
+    generate_fake_mixed_data()
