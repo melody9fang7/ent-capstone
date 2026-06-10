@@ -104,7 +104,7 @@ def get_optime_data(df, cpt):
         return None
     return data[['YEAR', 'OPTIME']].rename(columns={'OPTIME': 'VALUE'})
 
-# REVALUATION DETECTION
+# DYNAMIC REVALUATION DETECTION
 
 def detect_revaluations_from_data(df_ent, min_change_pct=MIN_RVU_CHANGE_PCT):
     """
@@ -348,32 +348,44 @@ def print_results_table(results_df, outcome_name, direction_map=None, magnitude_
         print(f"{cpt:<8} {by_str:<35} {row['n']:<6} {row['F_Pvalue']:.4f}   {sig:<7} {row['RSS_Reduction_Pct']:.1f}%     {row['R2_Simple']:.4f}   {row['R2_Segmented']:.4f}")
     print(f"\nSignificant: {results_df['Breakpoints_Significant'].sum()}/{len(results_df)} ({results_df['Breakpoints_Significant'].sum()/len(results_df)*100:.1f}%)")
 
-def print_detailed_results(results_df, direction_map, magnitude_map):
-    sig_df = results_df[results_df['Breakpoints_Significant'] == True]
-    if len(sig_df) == 0:
-        return
+def print_detailed_results(results_df, model_name, direction_map, magnitude_map):
+    """
+    Print parameter estimates, standard errors, and p-values for each CPT.
+    """
+    print(f"\n{'='*100}")
+    print(f"DETAILED PARAMETER ESTIMATES — {model_name}")
+    print(f"{'='*100}")
     
-    print("DETAILED RESULTS FOR SIGNIFICANT CPTS")
-    
-    for _, row in sig_df.iterrows():
+    for _, row in results_df.iterrows():
         cpt = row['CPT']
-        print(f"\nCPT {cpt} | n={row['n']}")
+        break_years = row['Break_Years']
         
-        for by in row['Break_Years']:
-            direction, magnitude = get_revaluation_info(cpt, by, direction_map, magnitude_map)
-            arrow = '↑' if direction == 'increase' else '↓' if direction == 'decrease' else '?'
-            print(f"   Reval {by}: {arrow} {magnitude:.1f}% ({direction})")
+        print(f"\n─── CPT {cpt} (n={row['n']}) ───")
+        print(f"  Break Years: {break_years}")
+        print(f"  Pre-Slope: {row['Pre_Slope']:+.4f}")
+        print(f"  R²: {row['R2_Simple']:.4f} → {row['R2_Segmented']:.4f}")
+        print(f"  F-test p: {row['F_Pvalue']:.4f} {'*' if row['Breakpoints_Significant'] else ''}")
         
-        print(f"   R²: {row['R2_Simple']:.4f} → {row['R2_Segmented']:.4f} (+{row['R2_Segmented']-row['R2_Simple']:.4f})")
-        print(f"   RSS Reduction: {row['RSS_Reduction_Pct']:.1f}%")
-        print(f"   F-test p = {row['F_Pvalue']:.4f} {'✓' if row['Breakpoints_Significant'] else '✗'}")
-        print(f"   Pre-slope: {row['Pre_Slope']:+.2f}")
-        for by, change in row['Slope_Changes'].items():
-            pval = row['Slope_Pvalues'].get(by, 1)
-            sig = '***' if pval < 0.001 else '**' if pval < 0.01 else '*' if pval < 0.05 else ''
-            direction, _ = get_revaluation_info(cpt, by, direction_map, magnitude_map)
-            arrow = '↑' if direction == 'increase' else '↓' if direction == 'decrease' else '?'
-            print(f"   → {by} {arrow}: slope change = {change:+.2f} {sig} (p={pval:.4f})")
+        # Level changes
+        if 'Level_Changes' in row and isinstance(row['Level_Changes'], dict):
+            print(f"  Level Changes:")
+            for by, change in row['Level_Changes'].items():
+                pval = row.get('Level_Pvalues', {}).get(by, 1)
+                sig = '***' if pval < 0.001 else '**' if pval < 0.01 else '*' if pval < 0.05 else ''
+                direction = direction_map.get(cpt, {}).get(by, '?')
+                mag = magnitude_map.get(cpt, {}).get(by, 0)
+                arrow = '↑' if direction == 'increase' else '↓'
+                print(f"    {by} {arrow} ({mag:.0f}%): {change:+.4f} {sig} (p={pval:.4f})")
+        
+        # Slope changes
+        if 'Slope_Changes' in row and isinstance(row['Slope_Changes'], dict):
+            print(f"  Slope Changes:")
+            for by, change in row['Slope_Changes'].items():
+                pval = row.get('Slope_Pvalues', {}).get(by, 1)
+                sig = '***' if pval < 0.001 else '**' if pval < 0.01 else '*' if pval < 0.05 else ''
+                direction = direction_map.get(cpt, {}).get(by, '?')
+                arrow = '↑' if direction == 'increase' else '↓'
+                print(f"    {by} {arrow}: {change:+.4f} {sig} (p={pval:.4f})")
 
 
 # MODEL COMPARISON
@@ -600,118 +612,82 @@ def plot_specific_cpts_single_model(data_dict, results_df, reval_map, direction_
     print(f"Saved: {filename}")
 
 
-def plot_single_cpt_optime_OLD(optime_data_dict, cpt, results_df, reval_map, direction_map,
-                             ylabel='Operative Time (minutes)', filename=None):
-    """
-    Plot a single CPT
-    OLD FUNCTION this only does slope model + no confidence intervals
-    """
-    if filename is None:
-        filename = f'nsqip_single_optime_{cpt}.svg'
+def plot_single_cpt(data_dict, results_df, reval_map, direction_map,
+                    outcome_name, ylabel, filename, cpt,
+                    model_type='slope_only', show_ci=True):
+    """Plot a single CPT — one clean figure."""
     
-    if cpt not in optime_data_dict:
-        print(f"CPT {cpt} not in optime data")
-        return
-    
-    data = optime_data_dict[cpt].sort_values('YEAR')
+    data = data_dict[cpt].sort_values('YEAR')
     break_years = reval_map.get(cpt, [])
-    group = CPT_GROUPS.get(cpt, '')
+    include_level = (model_type == 'level_slope')
     
-    fig, ax = plt.subplots(figsize=(12, 10))
-    
-    #  Plot observed data 
-    yearly_means = data.groupby('YEAR')['VALUE'].mean()
-    ax.plot(yearly_means.index, yearly_means.values, 'o-', 
-           color='steelblue', alpha=0.9, markersize=20, linewidth=5, 
-           markerfacecolor='white', markeredgewidth=3,
-           label='Yearly Mean Operative Time', zorder=3)
-    
-    #  Fit and plot segmented regression 
-    try:
-        from nsqip_segmented_lr import fit_segmented
-        model, slopes, _ = fit_segmented(data, break_years, 'VALUE')
-        years_range = np.arange(int(data['YEAR'].min()), int(data['YEAR'].max()) + 1)
-        X_pred = pd.DataFrame({'YEAR': years_range})
-        X_pred['const'] = 1
-        for by in break_years:
-            X_pred[f'TIME_SINCE_{by}'] = np.maximum(0, years_range - by)
-        predictions = model.predict(X_pred)
-        ax.plot(years_range, predictions, '-', color='#c0392b', 
-               linewidth=5, alpha=0.9, label='Segmented Regression', zorder=4)
-    except:
-        pass
-    
-    # Reference line 
-    ref_time = REFERENCE_TIMES.get(cpt, None)
-    if ref_time is not None:
-        ax.axhline(y=ref_time, color='#C59E01', linestyle='--', linewidth=5, 
-                  alpha=0.8, label=f'RUC Intra Time ({ref_time} min)')
-    
-    #  Breakpoint lines 
-    for by in break_years:
-        direction = direction_map.get(cpt, {}).get(by, None)
-        if direction == 'increase':
-            color, label = 'green', 'wRVU Increase'
-        elif direction == 'decrease':
-            color, label = 'red', 'wRVU Decrease'
-        else:
-            color, label = 'gray', 'Revaluation'
-        ax.axvline(x=by, color=color, linestyle='--', linewidth=5, alpha=0.8, 
-                  label=label, zorder=1)
-    
-    # Stats annotation
-    if results_df is not None:
-        row = results_df[results_df['CPT'] == cpt]
-        if len(row) > 0:
-            f_p = row.iloc[0]['F_Pvalue']
-            sig = '*' if row.iloc[0]['Breakpoints_Significant'] else ''
-            r2 = row.iloc[0]['R2_Segmented']
-            ax.text(0.96, 0.94, f'F-test p = {f_p:.4f}{sig}\nR²={r2:.4f}', 
-                   transform=ax.transAxes, va='top', ha='right', fontsize=24,
-                   bbox=dict(boxstyle='round,pad=0.6', facecolor='white', 
-                            edgecolor='gray', linewidth=2, alpha=0.9))
-    
-    # Y-axis scaling
-    y_min_data = yearly_means.values.min()
-    y_max_data = yearly_means.values.max()
-    y_range = y_max_data - y_min_data
-    
-    if y_range < 5:
-        y_center = (y_max_data + y_min_data) / 2
-        y_min = y_center - 5
-        y_max = y_center + 5
+    # Fit model
+    if include_level:
+        model, _, _, _ = fit_segmented_level_slope(data, break_years, 'VALUE')
     else:
-        padding = y_range * 0.2
-        y_min = y_min_data - padding
-        y_max = y_max_data + padding
+        model, _, _ = fit_segmented_slope_only(data, break_years, 'VALUE')
     
-    if ref_time is not None:
-        y_min = min(y_min, ref_time - 3)
-        y_max = max(y_max, ref_time + 3)
+    # Predict
+    years_range = np.arange(int(data['YEAR'].min()), int(data['YEAR'].max()) + 1)
+    fake_data = pd.DataFrame({'YEAR': years_range})
+    X_pred, _ = build_design_matrix(fake_data, break_years, include_level=include_level)
+    X_pred = X_pred[model.params.index]
+    pred = model.get_prediction(X_pred).summary_frame(alpha=0.05)
     
-    y_min = max(0, y_min)
-    ax.set_ylim(y_min, y_max)
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 7))
+    yearly_means = data.groupby('YEAR')['VALUE'].mean()
     
-    #  Formatting 
-    ax.set_xlabel('Year', fontsize=24, fontweight='bold')
-    ax.set_ylabel(ylabel, fontsize=24, fontweight='bold')
-    ax.set_title(f'CPT {cpt}: {group} Operative Time', fontsize=24, fontweight='bold', pad=15)
-    ax.tick_params(labelsize=22, width=2, length=8)
-    ax.grid(True, alpha=0.3, linewidth=1)
+    ax.plot(yearly_means.index, yearly_means.values, 'o', color='steelblue',
+           markersize=14, zorder=3, label='Yearly Mean')
+    ax.plot(years_range, pred['mean'], '-', color='#c0392b', linewidth=3, 
+           zorder=4, label='Segmented Fit')
+    
+    if show_ci:
+        ax.fill_between(years_range, pred['mean_ci_lower'], pred['mean_ci_upper'],
+                       color='#c0392b', alpha=0.1, label='95% CI')
+    
+    for by in break_years:
+        direction = direction_map.get(cpt, {}).get(by, '?')
+        color = 'green' if direction == 'increase' else 'red'
+        ax.axvline(x=by, color=color, linestyle='--', linewidth=2.5, alpha=0.7,
+                  label=f'wRVU {direction} ({by})')
+    
+    # Stats
+    row = results_df[results_df['CPT'] == cpt]
+    if len(row) > 0:
+        f_p = row.iloc[0]['F_Pvalue']
+        sig = '*' if row.iloc[0]['Breakpoints_Significant'] else ''
+        r2 = row.iloc[0]['R2_Segmented']
+        ax.text(0.98, 0.96, f'p = {f_p:.4f}{sig}\nR² = {r2:.4f}', 
+               transform=ax.transAxes, va='top', ha='right', fontsize=14,
+               bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
+    
+    ax.set_xlabel('Year', fontsize=16, fontweight='bold')
+    ax.set_ylabel(ylabel, fontsize=16, fontweight='bold')
+    ax.set_title(f'CPT {cpt}: {outcome_name}', fontsize=18, fontweight='bold')
+
+    from matplotlib.lines import Line2D
+    fit_label = 'Slope-Only Fit' if model_type == 'slope_only' else 'Level+Slope Fit'
+    legend_handles = [
+        Line2D([0], [0], color='steelblue', marker='o', markersize=10, linewidth=0, label='Observed Mean'),
+        Line2D([0], [0], color='#c0392b', linewidth=3, label=fit_label),
+        Line2D([0], [0], color='green', linestyle='--', linewidth=3, label='wRVU Increase'),
+        Line2D([0], [0], color='red', linestyle='--', linewidth=3, label='wRVU Decrease'),
+    ]
+    fig.legend(handles=legend_handles, loc='lower center', ncol=4, fontsize=14,
+              frameon=True, bbox_to_anchor=(0.5, -0.04))
+    
+    ax.grid(True, alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(2)
-    ax.spines['bottom'].set_linewidth(2)
     
-    # Integer x-axis
-    x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
-    tick_step = max(1, (x_max - x_min) // 6)
+    plt.subplots_adjust(bottom=0.15)
+    x_min, x_max = int(data['YEAR'].min()), int(data['YEAR'].max())
+    tick_step = max(1, (x_max - x_min) // 8)
     ax.set_xticks(range(x_min, x_max + 1, tick_step))
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
-    
-    plt.savefig(filename, dpi=300, facecolor='white', format='svg')
     plt.show()
-    print(f"Saved: {filename}")
 
 # MAIN
 
@@ -756,7 +732,11 @@ def main():
     # Print
     print_results_table(slope_df, "Operative Time (Slope Only)", direction_map, magnitude_map)
     print_results_table(level_df, "Operative Time (Level + Slope)", direction_map, magnitude_map)
-    
+
+    # Detailed parameter estimates 
+    print_detailed_results(slope_df, "Slope Only", direction_map, magnitude_map)
+    print_detailed_results(level_df, "Level + Slope", direction_map, magnitude_map)
+
     # Compare
     compare_models(slope_results, level_results)
     
@@ -784,7 +764,15 @@ def main():
         "Operative Time Response", "Operative Time (minutes)",
         "segmented_optime_level_slope.svg", target_cpts,
         model_type='level_slope', show_ci=True)
+
+    for_paper = ['42440', '60220']
+    plot_specific_cpts_single_model(
+        optime_data_dict, level_df, reval_map, direction_map,
+        "Operative Time Response", "Operative Time (minutes)",
+        "segmented_optime_PAPER.png", for_paper,
+        model_type='level_slope', show_ci=True)
     
+    # Save
     slope_df.to_csv('optime_slope_only_results.csv', index=False)
     level_df.to_csv('optime_level_slope_results.csv', index=False)
     
