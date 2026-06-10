@@ -54,7 +54,7 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
             'CPT8': np.nan,
             'CPT9': np.nan,
             'CPT10': np.nan,
-            'CPTCCS1': 28,
+            'CPTCCS1': 28, # gspecific to 30520
             'CPTCCS2': np.nan,
             'CPTCCS3': np.nan,
             'CPTCCS4': np.nan,
