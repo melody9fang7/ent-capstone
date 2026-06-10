@@ -25,7 +25,9 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
     print("generating rows...")
 
     for i in range(num_rows):
-        dx_idx = random.randint(0, len(ICD10_OPTIONS) - 1)
+        dx9_idx = random.randint(0, len(ICD9_OPTIONS) - 1)
+        dx10_idx = random.randint(0, len(ICD10_OPTIONS) - 1)
+
 
         los = random.choice([0, 0, 0, 0, 0, 0, 0, 1])
 
@@ -77,18 +79,18 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
             'HCUP_SURGERY_NARROW_CPT': np.nan,
             'HISPANIC': random.choice([0, 1, 2, 3, 4, np.nan]),
             'HISPANIC_X': np.nan,
-            'I10_DX1': ICD10_OPTIONS[dx_idx],
+            'I10_DX1': ICD10_OPTIONS[dx10_idx],
             'I10_DX2': np.nan,
             'I10_DX3': np.nan,
             'I10_DX4': np.nan,
             'I10_DX5': np.nan,
-            'I10_DX_VISIT_Reason': ICD10_OPTIONS[dx_idx],
-            'I9_DX1': ICD9_OPTIONS[dx_idx],
+            'I10_DX_VISIT_Reason': ICD10_OPTIONS[dx10_idx],
+            'I9_DX1': ICD9_OPTIONS[dx9_idx],
             'I9_DX2': np.nan,
             'I9_DX3': np.nan,
             'I9_DX4': np.nan,
             'I9_DX5': np.nan,
-            'I9_DX_VISIT_Reason': ICD9_OPTIONS[dx_idx],
+            'I9_DX_VISIT_Reason': ICD9_OPTIONS[dx9_idx],
             'KEY': fake.unique.random_int(min=300000000, max=999999999),
             'LOS': los,
             'LOS_X': los,
