@@ -14,9 +14,13 @@ This project analyzes otolaryngology procedure outcomes using NSQIP and HCUP dat
 
 ### Root Directory
 
-| File          | Description                                          |
-| ------------- | ---------------------------------------------------- |
-| `README.md`   | Project documentation and usage instructions.        |
+| File                        | Description                                          |
+| --------------------------- | ---------------------------------------------------- |
+| `README.md`                 | Project documentation and usage instructions.        |
+| `ipynb_data_generator.py`   | Generate sample data for jupyter notebook,           |
+|                             |    (ONLY FOR ILLUSTRATIVE PURPOSES)                  |
+| `notebook.ipynb`            | Illustrates modeling.                                |
+| `notebook.html`             | Html output of jupyter notebook                      |
 
 ### NSQIP Cleaning (`nsqip_cleaning/`)
 
@@ -77,7 +81,10 @@ ent-capstone/
 │   └── hcup_merged/
 ├── nsqip_cleaning/
 ├── hcup_cleaning/
-└── mnpb/
+├── mnpb/
+├── ipynb_data_generator.py
+├── notebook.ipynb
+└── sample_data/
 ```
 
 ## Running the Pipeline
