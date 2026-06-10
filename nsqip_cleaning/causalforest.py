@@ -1,195 +1,162 @@
-"""
-Causal inference analysis for Specific Aim 2 (SA2) procedural volume,
-using a LinearDML model to estimate the causal effect of wRVU revaluation
-on each CPT code's relative share of all NSQIP cases per year.
-
-Relative share (solo_share) is used as the outcome rather than raw counts
-to control for NSQIP registry growth over time — the denominator is all
-NSQIP cases across all specialties in a given year, not just ENT cases,
-so that secular growth in NSQIP participation does not confound the
-revaluation effect estimate.
-
-Requires:
-    - data/nsqip/combined_filtered.csv   main NSQIP analysis file
-    - data/final_CPT_1.csv               ARD features including Most Recent
-                                         RUC Review date (used as revaluation year)
-    - data/nsqip/                        directory of yearly raw NSQIP CSVs
-                                         (used to compute total_nsqip_cases
-                                         per year as the volume denominator)
-
-Pipeline:
-    1. get_total_nsqip_per_year()   streams yearly CSVs to count all NSQIP
-                                    cases per year (denominator)
-    2. build_volume_panel()         builds CPT-year panel with solo_share
-                                    outcome, ARD features, treatment indicator
-                                    (post-revaluation within ±5 year window)
-    3. run_volume_causal_forest()   fits LinearDML with gradient boosting
-                                    nuisance models; treatment = post-revaluation,
-                                    outcome = solo_share, features = ARD
-                                    procedure characteristics
-
-Output:
-    Prints panel summary and fitted model to console.
-    Extend main() to call est.effect() and save treatment effect CSVs
-    as needed.
-
-Dependencies:
-    pip install pandas numpy scikit-learn econml
-"""
-
 import pandas as pd
 import numpy as np
-import os, glob
-
-from econml.dml import LinearDML
+from econml.dml import CausalForestDML
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.preprocessing import LabelEncoder
-
+import matplotlib.pyplot as plt
 from data_handling_nsqip import standardize_cpt
 
 
-# =========================================================
-# TOTAL NSQIP CASES PER YEAR (STREAMING)
-# =========================================================
-def get_total_nsqip_per_year(nsqip_dir: str) -> pd.DataFrame:
-    files = glob.glob(os.path.join(nsqip_dir, "*.csv"))
+def clean_age(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series.astype(str).str.replace('+', '', regex=False), errors='coerce')
 
-    frames = []
-    for f in files:
-        df = pd.read_csv(f, usecols=["PUFYEAR"], low_memory=False)
-        frames.append(df)
 
-    combined = pd.concat(frames, ignore_index=True)
+def build_case_level_panel(nsqip_df: pd.DataFrame, ard_df: pd.DataFrame) -> pd.DataFrame:
+    nsqip_df = nsqip_df.copy()
+    nsqip_df['CPT'] = standardize_cpt(nsqip_df['CPT'])
+    ard_df['CPT'] = standardize_cpt(ard_df['CPT'])
 
-    return (
-        combined.groupby("PUFYEAR")
-        .size()
-        .reset_index(name="total_nsqip_cases")
+    # revaluation year from ARD
+    ard_df['Most Recent RUC Review'] = pd.to_datetime(
+        ard_df['Most Recent RUC Review'], errors='coerce'
     )
+    ard_df['revaluation_year'] = ard_df['Most Recent RUC Review'].dt.year
 
-
-# =========================================================
-# VOLUME PANEL ONLY
-# =========================================================
-def build_volume_panel(filtered_df, ard_df, nsqip_dir):
-
-    filtered_df = filtered_df.copy()
-    ard_df = ard_df.copy()
-
-    filtered_df["CPT"] = standardize_cpt(filtered_df["CPT"])
-    ard_df["CPT"] = standardize_cpt(ard_df["CPT"])
-
-    # numerator: CPT-year counts (filtered cohort)
-    filtered_counts = (
-        filtered_df.groupby(["CPT", "PUFYEAR"])
-        .size()
-        .reset_index(name="filtered_count")
-    )
-
-    # denominator: all NSQIP cases per year
-    total_per_year = get_total_nsqip_per_year(nsqip_dir)
-
-    panel = filtered_counts.merge(total_per_year, on="PUFYEAR", how="left")
-
-    panel["solo_share"] = panel["filtered_count"] / panel["total_nsqip_cases"]
-
-    # ARD merge
-    ard_df["Most Recent RUC Review"] = pd.to_datetime(
-        ard_df["Most Recent RUC Review"], errors="coerce"
-    )
-    ard_df["revaluation_year"] = ard_df["Most Recent RUC Review"].dt.year
-
-    panel = panel.merge(
-        ard_df[
-            ["CPT", "Work RVU", "Intra Time", "Total Time",
-             "Global", "Surgery? 0 =in office, 1 = surgery",
-             "IWPUT", "2022 Medicare Utilization",
-             "Top_Specialty", "revaluation_year"]
-        ],
-        on="CPT",
-        how="left"
-    )
-
-    WINDOW = 5
-    panel = panel[
-        (panel["PUFYEAR"] >= panel["revaluation_year"] - WINDOW) &
-        (panel["PUFYEAR"] <= panel["revaluation_year"] + WINDOW)
+    ard_features = [
+        'CPT', 'Work RVU', 'Intra Time', 'Total Time',
+        'Global', 'Surgery? 0 =in office, 1 = surgery',
+        'IWPUT', '2022 Medicare Utilization', 'Top_Specialty',
+        'revaluation_year'
     ]
 
-    panel["TREATED"] = (panel["PUFYEAR"] >= panel["revaluation_year"]).astype(int)
+    # merge ARD features onto every individual case
+    panel = nsqip_df.merge(ard_df[ard_features], on='CPT', how='inner')
+
+    # treatment: was this case performed after revaluation?
+    WINDOW = 5
+    panel = panel[
+        (panel['PUFYEAR'] >= panel['revaluation_year'] - WINDOW) &
+        (panel['PUFYEAR'] <= panel['revaluation_year'] + WINDOW)
+    ]
+    panel['TREATED'] = (panel['PUFYEAR'] >= panel['revaluation_year']).astype(int)
+
+    panel = panel.dropna(subset=['OPTIME', 'TREATED', 'Work RVU'])
 
     return panel
 
 
-# =========================================================
-# VOLUME CAUSAL MODEL
-# =========================================================
-def run_volume_causal_forest(panel):
+def plot_feature_importance(est, feature_cols: list, outcome_label: str = 'Operative Time'):
+    """
+    Bar chart of causal forest feature importances.
+    """
+    importances = est.feature_importances_
+    indices = np.argsort(importances)[::-1]
+    sorted_features = [feature_cols[i] for i in indices]
+    sorted_importances = importances[indices]
 
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.barh(sorted_features[::-1], sorted_importances[::-1], color='steelblue', alpha=0.7)
+    ax.set_xlabel('Feature Importance', fontsize=11)
+    ax.set_title(f'Causal Forest Feature Importances\nOutcome: {outcome_label}', fontsize=12)
+    ax.grid(True, alpha=0.3, axis='x')
+    plt.tight_layout()
+    plt.savefig('figs/causal_forest_feature_importance.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+def run_causal_forest(panel: pd.DataFrame, outcome: str = 'OPTIME'):  # changed default
+    le = LabelEncoder()
     panel = panel.copy()
+    panel['AGE'] = clean_age(panel['AGE'])
+    panel['Top_Specialty_enc'] = le.fit_transform(panel['Top_Specialty'].fillna('Unknown'))
+    panel['Global_enc'] = LabelEncoder().fit_transform(panel['Global'].fillna('Unknown'))
 
-    panel["Top_Specialty_enc"] = LabelEncoder().fit_transform(
-        panel["Top_Specialty"].fillna("Unknown")
-    )
-    panel["Global_enc"] = LabelEncoder().fit_transform(
-        panel["Global"].fillna("Unknown")
-    )
-
-    features = [
-        "Work RVU", "Intra Time", "Total Time",
-        "Surgery? 0 =in office, 1 = surgery",
-        "IWPUT", "2022 Medicare Utilization",
-        "Top_Specialty_enc", "Global_enc"
+    feature_cols = [
+        'Work RVU', 'Intra Time', 'Total Time',
+        'Surgery? 0 =in office, 1 = surgery',
+        'IWPUT', '2022 Medicare Utilization',
+        'Top_Specialty_enc', 'Global_enc',
+        'AGE',
     ]
 
-    panel = panel.dropna(subset=features + ["solo_share", "TREATED"])
+    panel = panel.dropna(subset=feature_cols + [outcome, 'TREATED'])
 
-    print("\n=== VOLUME PANEL ===")
-    print(panel.shape)
-    print(panel["TREATED"].value_counts())
+    X = panel[feature_cols].values
+    y = panel[outcome].values
+    w = panel['TREATED'].values
 
-    X = panel[features].values
-    y = panel["solo_share"].values
-    w = panel["TREATED"].values
-
-    est = LinearDML(
-        model_y=GradientBoostingRegressor(),
-        model_t=GradientBoostingClassifier(),
+    est = CausalForestDML(
+        model_y=GradientBoostingRegressor(n_estimators=100, max_depth=3),
+        model_t=GradientBoostingClassifier(n_estimators=100, max_depth=3),
         discrete_treatment=True,
-        random_state=42
+        n_estimators=2000,
+        min_samples_leaf=5,
+        random_state=42,
+        inference=True
     )
-
     est.fit(Y=y, T=w, X=X)
 
-    return est
+    return est, feature_cols, panel, X
 
 
-# =========================================================
-# MAIN (VOLUME ONLY)
-# =========================================================
+def plot_treatment_effects(est, X, panel: pd.DataFrame, outcome_label: str = 'Operative Time'):
+    te = est.effect(X)
+    te_lower, te_upper = est.effect_interval(X, alpha=0.05)
+
+    panel = panel.copy()
+    panel['TE'] = te
+    panel['TE_lower'] = te_lower
+    panel['TE_upper'] = te_upper
+
+    # average TE per CPT for plotting
+    cpt_te = (
+        panel.groupby('CPT')[['TE', 'TE_lower', 'TE_upper']]
+        .mean()
+        .sort_values('TE')
+        .reset_index()
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.barh(
+        cpt_te['CPT'], cpt_te['TE'],
+        xerr=[
+            cpt_te['TE'] - cpt_te['TE_lower'],
+            cpt_te['TE_upper'] - cpt_te['TE']
+        ],
+        color=['firebrick' if x < 0 else 'steelblue' for x in cpt_te['TE']],
+        alpha=0.7, capsize=3
+    )
+    ax.axvline(0, color='black', linewidth=1, linestyle='--')
+    ax.set_xlabel(f'Estimated Effect on {outcome_label} (minutes)', fontsize=11)
+    ax.set_title(
+        'Causal Forest: Estimated Treatment Effect of wRVU Revaluation\nper CPT Code (95% CI)',
+        fontsize=12
+    )
+    ax.grid(True, alpha=0.3, axis='x')
+    plt.tight_layout()
+    plt.savefig('figs/causal_forest_treatment_effects.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+    return cpt_te
+
+
 def main():
-
     nsqip_df = pd.read_csv("data/nsqip/combined_filtered.csv", low_memory=False)
     ard_df = pd.read_csv("data/final_CPT_1.csv")
 
-    other_cols = [c for c in nsqip_df.columns if c.startswith("OTHERCPT")]
-    solo_df = nsqip_df[nsqip_df[other_cols].isnull().all(axis=1)]
+    other_cols = [c for c in nsqip_df.columns if c.startswith('OTHERCPT')]
+    nsqip_df = nsqip_df[nsqip_df[other_cols].isnull().all(axis=1)]
 
-    vol_panel = build_volume_panel(
-        solo_df,
-        ard_df,
-        nsqip_dir="data/nsqip"
-    )
+    panel = build_case_level_panel(nsqip_df, ard_df)
+    print(f"Panel shape: {panel.shape}")
+    print(f"Treated rows: {panel['TREATED'].sum()}, Control rows: {(panel['TREATED']==0).sum()}")
+    print(f"Columns available: {panel.columns.tolist()}")  # sanity check
 
-    print("\n=== SAMPLE VOLUME PANEL ===")
-    print(vol_panel[[
-        "CPT", "PUFYEAR",
-        "filtered_count",
-        "total_nsqip_cases",
-        "solo_share"
-    ]].head(10))
+    est, feature_cols, panel, X = run_causal_forest(panel, outcome='OPTIME')
 
-    run_volume_causal_forest(vol_panel)
+    plot_feature_importance(est, feature_cols, outcome_label='Operative Time')
+    cpt_te = plot_treatment_effects(est, X, panel, outcome_label='Operative Time')
+    cpt_te.to_csv('causal_forest_cpt_effects.csv', index=False)
 
 
 if __name__ == "__main__":
