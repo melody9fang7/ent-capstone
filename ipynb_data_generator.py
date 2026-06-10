@@ -116,6 +116,59 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
     df_fake.to_csv(target_file_path, index=False )
     print(f"saved {num_rows} rows to {target_file_path}")
 
+def generate_fake_nsqip(target_file_path: str = 'nsqip_sample_data.csv', num_rows: int = 500000):
+    """
+    Generate fake NSQIP data with multiple CPTs.
+    CPT 12345 has wRVU changes AND volume decreases after the 2012 devaluation.
+    """
+    np.random.seed(42)
+    
+    TARGET_CPT = '12345'
+    OTHER_CPTS = ['50001', '50002', '50003', '50004', '50005']
+    
+    rows = []
+    for i in range(num_rows):
+        year = np.random.randint(2005, 2023)
+        
+        # Volume share for target CPT: stable ~10% before 2012, drops to ~7% after
+        if year < 2007:
+            target_share = 0.10
+            wrvu = 10.0
+        elif year < 2010:
+            target_share = 0.10
+            wrvu = 11.0   # +10% in 2007
+        elif year < 2012:
+            target_share = 0.10
+            wrvu = 11.55  # +5% in 2010
+        else:
+            target_share = 0.07  # Volume drops after 2012 devaluation
+            wrvu = 9.82   # -15% in 2012
+        
+        if np.random.random() < target_share:
+            cpt = TARGET_CPT
+            optime_mean = 120
+        else:
+            cpt = np.random.choice(OTHER_CPTS)
+            wrvu = round(np.random.uniform(5, 20), 2)
+            optime_mean = np.random.uniform(60, 200)
+        
+        optime = max(10, int(np.random.normal(optime_mean, 30)))
+        
+        rows.append({
+            'PUFYEAR': year,
+            'CASEID': 100000 + i,
+            'CPT': cpt,
+            'WORKRVU': wrvu,
+            'OPTIME': optime,
+            'SEX': np.random.choice(['female', 'male']),
+            'AGE': np.random.randint(18, 91),
+            'ASACLAS': np.random.choice([1, 2, 3, 4]),
+        })
+    
+    df = pd.DataFrame(rows)
+    df.to_csv(target_file_path, index=False)
+
 
 if __name__ == "__main__":
     generate_fake_hcup("sample_data/hcup_sample_data.csv", 1000)
+    generate_fake_nsqip('nsqip_sample_data.csv', num_rows=500_000) # maybe change lol
