@@ -1,3 +1,47 @@
+"""
+Handles all NSQIP data loading, cleaning, and CPT code selection for the
+ENT capstone pipeline. This is the first script that should be run on a
+new machine or after obtaining new NSQIP data.
+
+Pipeline (run in order):
+    1. sav_to_csv()         — converts filtered SPSS SAV files to CSVs
+                              (requires pre-filtered SAV files from SPSS syntax)
+    2. get_cpts()           — scans all yearly CSVs to collect ENT-attributed
+                              CPT codes (~930 codes) and saves to ent_cpt_codes.csv
+    3. compare_cpt_files()  — cross-references NSQIP ENT codes against the
+                              mentor-validated code list (sina_ENT.xlsx),
+                              adds AGREE column, saves CPT_comparison.csv
+    4. get_final_cpts()     — filters to codes with >100 solo ENT cases that
+                              appear in both NSQIP and mentor list, merges in
+                              2005/2006 and 2022 wRVU values, saves final_CPT_1.csv
+    5. build_combined_filtered() — builds the main analysis CSV by filtering
+                              all yearly CSVs to the final CPT list, standardizing
+                              race/ethnicity, and adding CPT GROUP labels
+    6. combine_hcup_nsqip() — unions NSQIP and HCUP CPT code lists, adds
+                              NSQIP and HCUP case counts, flags which codes
+                              appear in each dataset's final analytic set
+
+Required data (not included in repo — restricted access):
+    - data/nsqip_filtered_sav/   yearly NSQIP SAV files, pre-filtered to
+                                 required variables using SPSS syntax
+    - data/sina_ENT.xlsx         mentor-validated CPT code list
+    - data/nsqip/2006.csv        NSQIP 2005/2006 file for baseline wRVU
+    - data/nsqip/2022.csv        NSQIP 2022 file for current wRVU
+    - data/table 1 HCUP.csv      HCUP CPT code list with counts
+    - data/hcup_counts.csv       HCUP encounter counts for NSQIP codes
+
+Output files:
+    - data/nsqip_new/            one CSV per year, all columns
+    - data/nsqip/combined_filtered_930.csv   all ENT-attributed cases combined
+    - data/nsqip/ent_cpt_codes.csv           ~930 ENT CPT codes with counts
+    - data/CPT_comparison.csv                NSQIP codes vs mentor list
+    - data/final_CPT_1.csv                   final 29 analytic CPT codes
+    - data/final_CPT_FULL.csv                union of NSQIP + HCUP codes (~60)
+
+Dependencies:
+    pip install pandas pyreadstat openpyxl
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import glob

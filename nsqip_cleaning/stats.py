@@ -1,3 +1,39 @@
+"""
+Statistical analysis and visualization for Specific Aim 1 (SA1) and the
+baseline SA2 linear regression, using the filtered NSQIP dataset produced
+by data_handling_nsqip.py.
+
+Requires:
+    - data/nsqip/combined_filtered.csv   main NSQIP analysis file
+    - data/final_CPT_1.csv               reference file with RUC Intra Times
+      and CPT GROUP labels (must have CPT GROUP column merged in before use —
+      see data_handling_nsqip.py)
+
+Functions:
+    filter_solo_cases()          removes cases with any co-occurring procedure
+    ttest_optime_by_cpt()        two-sided one-sample t-test per CPT code
+                                 comparing observed vs RUC mean operative time,
+                                 with Bonferroni correction; saves results CSV
+    plot_optime_boxplots()       grouped boxplots of operative time by CPT GROUP,
+                                 with RUC reference line, mean diff annotation,
+                                 and significance stars; saves PNG + SVG
+    plot_optime_boxplots_poster() single-panel version showing top 5 most
+                                 divergent codes for poster use
+    plot_optime_linreg()         linear regression of mean operative time over
+                                 time per CPT code, grouped by CPT GROUP,
+                                 with observed data as solid line and regression
+                                 as dashed; saves PNG + SVG
+
+Output files (saved to finalfigs/):
+    - optime_boxplots_cptgrouped.png / .svg
+    - optime_boxplots_poster.png / .svg
+    - optime_linreg_subplots_cptgrouped.png / .svg
+    - nsqip_stats_results_optime.csv
+
+Dependencies:
+    pip install pandas numpy scipy scikit-learn matplotlib
+"""
+
 from scipy import stats
 import pandas as pd
 import numpy as np

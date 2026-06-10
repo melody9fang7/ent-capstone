@@ -1,3 +1,42 @@
+"""
+Causal inference analysis for Specific Aim 2 (SA2) procedural volume,
+using a LinearDML model to estimate the causal effect of wRVU revaluation
+on each CPT code's relative share of all NSQIP cases per year.
+
+Relative share (solo_share) is used as the outcome rather than raw counts
+to control for NSQIP registry growth over time — the denominator is all
+NSQIP cases across all specialties in a given year, not just ENT cases,
+so that secular growth in NSQIP participation does not confound the
+revaluation effect estimate.
+
+Requires:
+    - data/nsqip/combined_filtered.csv   main NSQIP analysis file
+    - data/final_CPT_1.csv               ARD features including Most Recent
+                                         RUC Review date (used as revaluation year)
+    - data/nsqip/                        directory of yearly raw NSQIP CSVs
+                                         (used to compute total_nsqip_cases
+                                         per year as the volume denominator)
+
+Pipeline:
+    1. get_total_nsqip_per_year()   streams yearly CSVs to count all NSQIP
+                                    cases per year (denominator)
+    2. build_volume_panel()         builds CPT-year panel with solo_share
+                                    outcome, ARD features, treatment indicator
+                                    (post-revaluation within ±5 year window)
+    3. run_volume_causal_forest()   fits LinearDML with gradient boosting
+                                    nuisance models; treatment = post-revaluation,
+                                    outcome = solo_share, features = ARD
+                                    procedure characteristics
+
+Output:
+    Prints panel summary and fitted model to console.
+    Extend main() to call est.effect() and save treatment effect CSVs
+    as needed.
+
+Dependencies:
+    pip install pandas numpy scikit-learn econml
+"""
+
 import pandas as pd
 import numpy as np
 import os, glob

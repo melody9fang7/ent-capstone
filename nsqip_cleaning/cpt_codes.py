@@ -1,5 +1,11 @@
+"""
+Used to filter and find initial list of CPT codes that had
+been attributed to ENT procedures in the NSQIP data.
+
+Dependencies:
+    pip install pandas pathlib os
+"""
 import pandas as pd
-import matplotlib as plt
 import os
 from pathlib import Path
 import glob
