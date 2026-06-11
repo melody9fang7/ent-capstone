@@ -108,10 +108,18 @@ python hcup_cleaning/clean2008.py
 python hcup_cleaning/clean2017.py
 ```
 
-### Step 3: Merge HCUP Data
+### Step 3: Merge and Filter HCUP Data
 
 ```bash
 python hcup_cleaning/merge.py
+```
+Filtering for operative time analysis: 
+```bash
+python hcup_cleaning/filtering.py
+```
+Filtering for volume analysis:
+```bash
+python hcup_cleaning/volume_analysis.py
 ```
 
 ### Step 4: Generate Analysis Results
