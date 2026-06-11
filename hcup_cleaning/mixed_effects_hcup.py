@@ -16,6 +16,10 @@ def standardize_cpt(series: pd.Series) -> pd.Series:
 
 
 def prep_hcup(hcup_file, reval_file):
+    """
+    Prepares HCUP data for mixed effects modeling by merging
+    with RUC revaluation years and creating variables for analysis.
+    """
     # load hcup
     df = pd.read_csv(hcup_file, low_memory=False)
     reval = pd.read_csv(reval_file)
@@ -25,7 +29,6 @@ def prep_hcup(hcup_file, reval_file):
     df["ORTIME"] = pd.to_numeric(df["ORTIME"], errors="coerce")
     df["AYEAR"] = pd.to_numeric(df["AYEAR"], errors="coerce")
     df = df[df["ORTIME"] > 0]
-    #df = df[df["ORTIME"] >= 10].copy()  # minimum 10 minutes
 
 
     reval["CPT Code"] = standardize_cpt(reval["CPT Code"])
@@ -181,7 +184,7 @@ def qq_plot(result):
     plt.show()
 
 def main():
-    hcup_file = "HCUP_filtered_172_cleaned.csv" # have cleaned dataset (this already had solo cases)
+    hcup_file = "HCUP_filtered_172.csv" # have cleaned dataset (this already had solo cases)
     reval_file = "filtered_sina2.csv" # cpt list
 
     df = prep_hcup(hcup_file, reval_file)

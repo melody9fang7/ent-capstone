@@ -46,6 +46,9 @@ def get_ortime_data(df, cpt):
     return data[['AYEAR', 'ORTIME']].rename(columns={'AYEAR': 'YEAR', 'ORTIME': 'VALUE'})
 
 def load_ortime_data(filepath):
+    """
+    Load operative time data from dataset.
+    """
     df = pd.read_csv(filepath, low_memory=False)
     print(f"Loaded operative time data: {len(df):,} rows")
 
@@ -632,7 +635,7 @@ def main():
     ref_file = "filtered_sina2.csv"
 
     # Load data
-    df_ortime = load_ortime_data('HCUP_filtered_172_cleaned.csv')
+    df_ortime = load_ortime_data('HCUP_filtered_172.csv')
     df_volume = extract_yearly_wrvu(cpt_list, nsqip_file, output_file = 'yearly_wrvu.csv')
     reval_map, direction_map, magnitude_map = detect_revaluations_from_data(df_volume)
 

@@ -48,6 +48,9 @@ def filter_solo_cases(data: pd.DataFrame) -> pd.DataFrame:
     return solo
 
 def ttest_optime_by_cpt(data: pd.DataFrame, reference_csv: str, alpha: float = 0.05) -> pd.DataFrame:
+    """
+    Conducts a t-test for each CPT code with bonferroni correction
+    """
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT Code'])
     ref = ref.set_index('CPT')['Intra Time']
@@ -101,6 +104,10 @@ def ttest_optime_by_cpt(data: pd.DataFrame, reference_csv: str, alpha: float = 0
     return results_df
 
 def plot_optime_boxplots(data: pd.DataFrame, reference_csv: str, results_df: pd.DataFrame = None):
+    """
+    Boxplot of mean operative time compared to reference mean for each CPT code, given the csv
+    of statistics testing results
+    """
     plt.rcParams['axes.linewidth'] = 3
     plt.rcParams['xtick.major.width'] = 2.5
     plt.rcParams['ytick.major.width'] = 2.5
@@ -241,6 +248,9 @@ def plot_optime_boxplots_poster(
     top_n: int = 5,
     figsize: tuple = (8, 6) # changed to 10, 7
 ):
+    """
+    Plots 5 codes, for poster purposes only
+    """
     ref = pd.read_csv(reference_csv)
     ref['CPT'] = standardize_cpt(ref['CPT Code'])
     ref = ref.set_index('CPT')['Intra Time']
@@ -360,6 +370,9 @@ def plot_optime_boxplots_poster(
     plt.show()
 
 def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
+    """
+    Plots linear regression for operative time trends over the years for each CPT code.
+    """
     plt.rcParams['axes.linewidth'] = 3
     plt.rcParams['xtick.major.width'] = 2.5
     plt.rcParams['ytick.major.width'] = 2.5
@@ -480,11 +493,9 @@ def plot_optime_linreg(data: pd.DataFrame, min_years: int = 5):
     plt.show()
 
 def main():
-    df = pd.read_csv("HCUP_filtered_172_cleaned.csv")
-    #df_volume = pd.read_csv("hcup_volume_table.csv")
-    #resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv")
+    df = pd.read_csv("HCUP_filtered_172.csv") # filtered file from filtering.py
+    #resultsdf = ttest_optime_by_cpt(df, "filtered_sina2.csv") # csv with RUC reference means
     #plot_optime_boxplots(df, "filtered_sina2.csv", resultsdf)
-    #plot_volume(df_volume)
     #plot_optime_boxplots_poster(df, "filtered_sina2.csv", resultsdf)
     plot_optime_linreg(df)
 

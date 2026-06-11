@@ -66,7 +66,6 @@ def filter_chunk(chunk: pd.DataFrame, cpt_codes: set, drop_cols: list, require_v
         chunk = chunk[chunk["ORTIME"] > 0]
 
     chunk["CPT1"] = standardize_cpt(chunk["CPT1"])
-    #chunk = chunk[chunk["CPT1"] != "nan"] # filter out any "nan" that came from standardization
 
     # keep rows where CPT1 (primary procedure) is in the ent cpt code list
     chunk = chunk[chunk["CPT1"].isin(cpt_codes)]
@@ -111,9 +110,6 @@ def save_cpt_counts(input_file, output_file):
 
     # standardize CPT1
     df["CPT1"] = standardize_cpt(df["CPT1"])
-
-    # remove nan strings
-    #df = df[df["CPT1"] != "nan"]
 
     # count CPT1 values
     count_df = (df["CPT1"].value_counts().reset_index())

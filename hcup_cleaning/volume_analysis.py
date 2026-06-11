@@ -56,6 +56,10 @@ def create_volume_table(filtered_file, total_cases_file, cpt_list, output_file):
     return volume_df
  
 def filter_volume_chunk(chunk, cpt_codes, drop_cols):
+     """
+     Filters a chunk of the merged dataset, only keeping rows with CPT codes of interest and 
+     dropping any unnecessary columns. Also filters out rows before 2008.
+     """
      chunk["AYEAR"] = pd.to_numeric(chunk["AYEAR"], errors = "coerce")
      chunk = chunk[chunk["AYEAR"] >= 2008]
      chunk = chunk.dropna(subset = ["AYEAR"])
@@ -205,15 +209,15 @@ def count_volume_cpts(filtered_file, cpt_list, output_file):
     return counts_df
 
 def main():
-    hcup_merged = "HCUP_merged_extended.csv"
-    cpt_list = "ENT Codes since 1997.xlsx"
-    output_file = "HCUP_volume_filtered.csv"
+    hcup_merged = "HCUP_merged.csv" # output from merge.py
+    cpt_list = "ENT Codes since 1997.xlsx" # excel file with RUC data
+    output_file = "HCUP_volume_filtered.csv" 
     total_cases = "HCUP_total_yearly_cases.csv"
     volume_c = "hcup_volume_counts.csv"
     volume_t = "hcup_volume_table.csv"
-    #filter_hcup_volume(hcup_merged, cpt_list, output_file)
-    #count_volume_cpts(output_file, cpt_list, o)
-    create_volume_table(output_file, total_cases, cpt_list, z)
+    filter_hcup_volume(hcup_merged, cpt_list, output_file)
+    count_volume_cpts(output_file, cpt_list, volume_c)
+    create_volume_table(output_file, total_cases, cpt_list, volume_t)
 
 if __name__ == "__main__":
     main()
