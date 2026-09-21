@@ -689,6 +689,173 @@ def plot_single_cpt(data_dict, results_df, reval_map, direction_map,
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
     plt.show()
 
+def plot_optime_mnpb_style(data_dict, results_df, reval_map, direction_map,
+                            outcome_name, ylabel, filename, cpt_list,
+                            max_cols=4):
+    """
+    Plot NSQIP operative time in MNPB visual style.
+    - Slope-only segmented regression
+    - No confidence bands 
+        (ik we used those in our report but we havent been using it in what we give to sina)
+    - SVG export + companion results CSV (one row per CPT)
+    """
+    cpts_to_plot = [c for c in cpt_list if c in data_dict]
+    if len(cpts_to_plot) == 0:
+        print(f"No matching CPTs in data_dict: {cpt_list}")
+        return
+    
+    n_plots = len(cpts_to_plot)
+    n_cols = min(max_cols, n_plots)
+    n_rows = (n_plots + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 5.5 * n_rows))
+    if n_plots == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
+    
+    results_rows = []
+    
+    for idx, cpt in enumerate(cpts_to_plot):
+        ax = axes[idx]
+        data = data_dict.get(cpt)
+        group = CPT_GROUPS.get(cpt, '')
+        ref_time = REFERENCE_TIMES.get(cpt, None)
+        break_years = reval_map.get(cpt, [])
+        
+        if data is None or len(data) < 3:
+            ax.text(0.5, 0.5, f'CPT {cpt}\nInsufficient data',
+                    ha='center', va='center', fontsize=14)
+            ax.set_title(f'CPT {cpt}: {group}', fontsize=18, fontweight='bold')
+            continue
+        
+        yearly_means = data.groupby('YEAR')['VALUE'].mean()
+        
+        # Look up results for this CPT
+        row = results_df[results_df['CPT'] == cpt] if results_df is not None else None
+        if row is not None and len(row) > 0:
+            r = row.iloc[0]
+            f_pval = r.get('F_Pvalue', np.nan)
+            breakpoints_sig = r.get('Breakpoints_Significant', False)
+            slope_changes = r.get('Slope_Changes', {})
+            slope_pvals = r.get('Slope_Pvalues', {})
+        else:
+            f_pval = np.nan
+            breakpoints_sig = False
+            slope_changes = {}
+            slope_pvals = {}
+        
+        # All yearly means as a string
+        yearly_means_str = '; '.join(
+            f"{int(y)}:{v:.4f}" for y, v in yearly_means.items()
+        )
+        
+        # Slope change / p-value strings
+        slope_change_str = '; '.join(
+            f"{by}:{sc:+.4f}" for by, sc in slope_changes.items()
+        ) if slope_changes else ''
+        slope_pval_str = '; '.join(
+            f"{by}:{pv:.4f}" for by, pv in slope_pvals.items()
+        ) if slope_pvals else ''
+        
+        results_rows.append({
+            'CPT': cpt,
+            'Group': group,
+            'Break_Years': ', '.join(str(b) for b in break_years) if break_years else '',
+            'Yearly_Means': yearly_means_str,
+            'RUC_Reference_Time': ref_time if ref_time is not None else '',
+            'F_Pvalue': round(f_pval, 6) if not pd.isna(f_pval) else '',
+            'Breakpoints_Significant': breakpoints_sig,
+            'Slope_Changes': slope_change_str,
+            'Slope_Pvalues': slope_pval_str,
+        })
+        
+        # Observed with connecting line
+        ax.plot(yearly_means.index, yearly_means.values, 'o-',
+                color='steelblue', alpha=0.85, markersize=8,
+                linewidth=1.5, zorder=3)
+        
+        # Slope-only segmented fit
+        try:
+            model, _, _ = fit_segmented_slope_only(data, break_years, 'VALUE')
+            years_range = np.arange(int(data['YEAR'].min()),
+                                    int(data['YEAR'].max()) + 1)
+            pred = predict_from_model(model, break_years, years_range,
+                                       include_level=False)
+            ax.plot(years_range, pred, '-', color='#c0392b',
+                    linewidth=3, alpha=0.9, zorder=4)
+        except Exception as e:
+            print(f"  Could not fit CPT {cpt}: {e}")
+        
+        # Reference time line
+        if ref_time is not None:
+            ax.axhline(y=ref_time, color='#C59E01', linestyle='--',
+                       linewidth=2.5, alpha=0.85, zorder=2)
+        
+        # Breakpoints
+        for by in break_years:
+            ax.axvline(x=by, color=get_line_color(cpt, by, direction_map),
+                       linestyle='--', linewidth=2.5, alpha=0.7, zorder=1)
+        
+        # Y-axis padding
+        y_data = yearly_means.values
+        y_range = y_data.max() - y_data.min()
+        if y_range < 5:
+            y_center = (y_data.max() + y_data.min()) / 2
+            y_min, y_max = y_center - 2.5, y_center + 2.5
+        else:
+            pad = y_range * 0.15
+            y_min, y_max = y_data.min() - pad, y_data.max() + pad
+        if ref_time is not None:
+            y_min = min(y_min, ref_time - 1)
+            y_max = max(y_max, ref_time + 1)
+        ax.set_ylim(max(0, y_min), y_max)
+        
+        # Formatting
+        ax.set_xlabel('Year', fontsize=13, fontweight='bold')
+        ax.set_ylabel(ylabel, fontsize=13, fontweight='bold')
+        ax.set_title(f'CPT {cpt}: {group}', fontsize=18, fontweight='bold')
+        ax.tick_params(labelsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
+        tick_step = max(1, (x_max - x_min) // 5)
+        ax.set_xticks(range(x_min, x_max + 1, tick_step))
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
+    
+    for i in range(len(cpts_to_plot), len(axes)):
+        axes[i].set_visible(False)
+    
+    # Legend
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color='steelblue', marker='o', markersize=10,
+               linewidth=1.5, label='Observed Mean Operative Time'),
+        Line2D([0], [0], color='#c0392b', linewidth=3, label='Segmented Fit'),
+        Line2D([0], [0], color='#C59E01', linestyle='--', linewidth=3,
+               label='RUC Reference Time'),
+        Line2D([0], [0], color='green', linestyle='--', linewidth=3,
+               label='wRVU Increase'),
+        Line2D([0], [0], color='red', linestyle='--', linewidth=3,
+               label='wRVU Decrease'),
+    ]
+    fig.legend(handles=legend_handles, loc='lower center', ncol=5,
+               fontsize=13, frameon=True, bbox_to_anchor=(0.5, -0.01))
+    
+    plt.suptitle(f'NSQIP {outcome_name} -- Segmented Regression with wRVU Revaluation Breakpoints',
+                 fontsize=22, fontweight='bold', y=1.01)
+    plt.tight_layout(rect=[0, 0.04, 1, 0.98])
+    plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.show()
+    print(f"Saved: {filename}")
+    
+    # CSV one row per CPT
+    base = filename.rsplit('.', 1)[0]
+    pd.DataFrame(results_rows).to_csv(f"{base}_results.csv", index=False)
+    print(f"Saved: {base}_results.csv")
+
 # MAIN
 
 def main():
@@ -751,31 +918,58 @@ def main():
         print(f"  SW significant: {df['SW_sig'].sum()}/{len(df)}")
         
     # Plots
-    target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
+    #target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
     
-    plot_specific_cpts_single_model(
-        optime_data_dict, slope_df, reval_map, direction_map,
-        "Operative Time Response", "Operative Time (minutes)",
-        "segmented_optime_slope_only.svg", target_cpts,
-        model_type='slope_only', show_ci=True)
+    #plot_specific_cpts_single_model(
+    #    optime_data_dict, slope_df, reval_map, direction_map,
+    #    "Operative Time Response", "Operative Time (minutes)",
+    #    "segmented_optime_slope_only.svg", target_cpts,
+    #    model_type='slope_only', show_ci=True)
     
-    plot_specific_cpts_single_model(
-        optime_data_dict, level_df, reval_map, direction_map,
-        "Operative Time Response", "Operative Time (minutes)",
-        "segmented_optime_level_slope.svg", target_cpts,
-        model_type='level_slope', show_ci=True)
+    #plot_specific_cpts_single_model(
+    #    optime_data_dict, level_df, reval_map, direction_map,
+    #    "Operative Time Response", "Operative Time (minutes)",
+    #    "segmented_optime_level_slope.svg", target_cpts,
+    #    model_type='level_slope', show_ci=True)
 
-    for_paper = ['42440', '60220']
-    plot_specific_cpts_single_model(
-        optime_data_dict, level_df, reval_map, direction_map,
-        "Operative Time Response", "Operative Time (minutes)",
-        "segmented_optime_PAPER.png", for_paper,
-        model_type='level_slope', show_ci=True)
+    #for_paper = ['42440', '60220']
+    #plot_specific_cpts_single_model(
+    #    optime_data_dict, level_df, reval_map, direction_map,
+    #    "Operative Time Response", "Operative Time (minutes)",
+    #    "segmented_optime_PAPER.png", for_paper,
+    #    model_type='level_slope', show_ci=True)
     
     # Save
-    slope_df.to_csv('optime_slope_only_results.csv', index=False)
-    level_df.to_csv('optime_level_slope_results.csv', index=False)
-    
+    #slope_df.to_csv('optime_slope_only_results.csv', index=False)
+    #level_df.to_csv('optime_level_slope_results.csv', index=False)
+
+    # MNPB-style operative time figure (all NSQIP CPTs)
+    NSQIP_CPTS = ['21556', '30520', '38542', '42415', '42420', '42440', '60220']
+
+    plot_optime_mnpb_style(
+        optime_data_dict,
+        slope_df,                # slope-only results, so no CI and slope-only fit
+        reval_map,
+        direction_map,
+        outcome_name="Operative Time Response",
+        ylabel="Operative Time (minutes)",
+        filename="segmented_optime_mnpb_style.svg",
+        cpt_list=NSQIP_CPTS,
+        max_cols=5,
+    )
+
+    plot_optime_mnpb_style(
+        optime_data_dict,
+        slope_df,
+        reval_map,
+        direction_map,
+        outcome_name="Operative Time Response",
+        ylabel="Operative Time (minutes)",
+        filename="segmented_optime_mnpb_style.png",
+        cpt_list=NSQIP_CPTS,
+        max_cols=5,
+    )
+        
     print("\nDone.")
 
 
