@@ -382,6 +382,164 @@ def plot_volume_single_model(data_dict, results_df, reval_map, direction_map,
     print(f"Saved: {filename}")
 
 
+def plot_volume_mnpb_style(data_dict, results_df, reval_map, direction_map,
+                            outcome_name, ylabel, filename, cpt_list,
+                            max_cols=4):
+    """
+    - Slope-only segmented regression
+    - No confidence bands
+    - SVG export + companion results CSV (one row per CPT)
+    """
+    cpts_to_plot = [c for c in cpt_list if c in data_dict]
+    if len(cpts_to_plot) == 0:
+        print(f"No matching CPTs in data_dict: {cpt_list}")
+        return
+    
+    n_plots = len(cpts_to_plot)
+    n_cols = min(max_cols, n_plots)
+    n_rows = (n_plots + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 5.5 * n_rows))
+    if n_plots == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
+    
+    results_rows = []
+    
+    for idx, cpt in enumerate(cpts_to_plot):
+        ax = axes[idx]
+        data = data_dict.get(cpt)
+        group = CPT_GROUPS.get(cpt, '')
+        break_years = reval_map.get(cpt, [])
+        
+        if data is None or len(data) < 3:
+            ax.text(0.5, 0.5, f'CPT {cpt}\nInsufficient data',
+                    ha='center', va='center', fontsize=14)
+            ax.set_title(f'CPT {cpt}: {group}', fontsize=18, fontweight='bold')
+            continue
+        
+        # Only keep breakpoints within this CPT's data range
+        valid_breaks = [by for by in break_years
+                        if data['YEAR'].min() <= by <= data['YEAR'].max()]
+        
+        yearly_means = data.groupby('YEAR')['VALUE'].mean()
+        
+        # Look up results for this CPT
+        row = results_df[results_df['CPT'] == cpt] if results_df is not None else None
+        if row is not None and len(row) > 0:
+            r = row.iloc[0]
+            f_pval = r.get('F_Pvalue', np.nan)
+            breakpoints_sig = r.get('Breakpoints_Significant', False)
+            slope_changes = r.get('Slope_Changes', {})
+            slope_pvals = r.get('Slope_Pvalues', {})
+        else:
+            f_pval = np.nan
+            breakpoints_sig = False
+            slope_changes = {}
+            slope_pvals = {}
+        
+        # All yearly means as a string
+        yearly_means_str = '; '.join(
+            f"{int(y)}:{v:.6f}" for y, v in yearly_means.items()
+        )
+        
+        # Slope change / p-value strings
+        slope_change_str = '; '.join(
+            f"{by}:{sc:+.4f}" for by, sc in slope_changes.items()
+        ) if slope_changes else ''
+        slope_pval_str = '; '.join(
+            f"{by}:{pv:.4f}" for by, pv in slope_pvals.items()
+        ) if slope_pvals else ''
+        
+        results_rows.append({
+            'CPT': cpt,
+            'Group': group,
+            'Break_Years': ', '.join(str(b) for b in valid_breaks) if valid_breaks else '',
+            'Yearly_Means': yearly_means_str,
+            'F_Pvalue': round(f_pval, 6) if not pd.isna(f_pval) else '',
+            'Breakpoints_Significant': breakpoints_sig,
+            'Slope_Changes': slope_change_str,
+            'Slope_Pvalues': slope_pval_str,
+        })
+        
+        # Observed with connecting line
+        ax.plot(yearly_means.index, yearly_means.values, 'o-',
+                color='steelblue', alpha=0.85, markersize=8,
+                linewidth=1.5, zorder=3)
+        
+        # Slope-only segmented fit
+        try:
+            model, _, _ = fit_segmented_slope_only(data, valid_breaks, 'VALUE')
+            years_range = np.arange(int(data['YEAR'].min()),
+                                    int(data['YEAR'].max()) + 1)
+            pred = predict_from_model(model, valid_breaks, years_range,
+                                       include_level=False)
+            ax.plot(years_range, pred, '-', color='#c0392b',
+                    linewidth=3, alpha=0.9, zorder=4)
+        except Exception as e:
+            print(f"  Could not fit CPT {cpt}: {e}")
+        
+        # Breakpoints
+        for by in valid_breaks:
+            ax.axvline(x=by, color=get_line_color(cpt, by, direction_map),
+                       linestyle='--', linewidth=2.5, alpha=0.7, zorder=1)
+        
+        # Y-axis padding
+        y_data = yearly_means.values
+        y_range = y_data.max() - y_data.min()
+        if y_range < 0.01:
+            y_center = (y_data.max() + y_data.min()) / 2
+            y_min, y_max = y_center - 0.005, y_center + 0.005
+        else:
+            pad = y_range * 0.15
+            y_min, y_max = y_data.min() - pad, y_data.max() + pad
+        ax.set_ylim(max(0, y_min), y_max)
+        
+        # Formatting
+        ax.set_xlabel('Year', fontsize=13, fontweight='bold')
+        ax.set_ylabel(ylabel, fontsize=13, fontweight='bold')
+        ax.set_title(f'CPT {cpt}: {group}', fontsize=18, fontweight='bold')
+        ax.tick_params(labelsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        x_min, x_max = int(yearly_means.index.min()), int(yearly_means.index.max())
+        tick_step = max(1, (x_max - x_min) // 5)
+        ax.set_xticks(range(x_min, x_max + 1, tick_step))
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x)}'))
+    
+    for i in range(len(cpts_to_plot), len(axes)):
+        axes[i].set_visible(False)
+    
+    # Legend
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color='steelblue', marker='o', markersize=10,
+               linewidth=1.5, label='Observed Mean Volume'),
+        Line2D([0], [0], color='#c0392b', linewidth=3, label='Segmented Fit'),
+        Line2D([0], [0], color='green', linestyle='--', linewidth=3,
+               label='wRVU Increase'),
+        Line2D([0], [0], color='red', linestyle='--', linewidth=3,
+               label='wRVU Decrease'),
+    ]
+    fig.legend(handles=legend_handles, loc='lower center', ncol=4,
+               fontsize=13, frameon=True, bbox_to_anchor=(0.5, -0.01))
+    
+    plt.suptitle(f'NSQIP {outcome_name} -- Segmented Regression with wRVU Revaluation Breakpoints',
+                 fontsize=22, fontweight='bold', y=1.01)
+    plt.tight_layout(rect=[0, 0.04, 1, 0.98])
+    plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.show()
+    print(f"Saved: {filename}")
+    
+    # CSV one row per CPT
+    base = filename.rsplit('.', 1)[0]
+    pd.DataFrame(results_rows).to_csv(f"{base}_results.csv", index=False)
+    print(f"Saved: {base}_results.csv")
+
+
 # MAIN
 
 def main():
@@ -421,6 +579,9 @@ def main():
     # Print
     print_volume_table(slope_df, "Volume (Slope Only)")
     print_volume_table(level_df, "Volume (Level + Slope)")
+
+    print_detailed_results(slope_df, "Slope Only", direction_map, magnitude_map)
+    print_detailed_results(level_df, "Level + Slope", direction_map, magnitude_map)
     
     # Compare
     compare_models(slope_results, level_results)
@@ -437,22 +598,48 @@ def main():
             print(f"  SW significant: {df['SW_sig'].sum()}/{len(df)}")
     
     # Plots
-    target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
+    #target_cpts = ['38542', '42415', '42420', '42440', '60220', '60240']
     
-    plot_volume_single_model(
-        volume_data_dict, slope_df, reval_map, direction_map,
-        "Procedural Volume Response", "% of Total NSQIP Cases",
-        "segmented_volume_slope_only.svg", target_cpts,
-        model_type='slope_only', show_ci=True)
+    #plot_volume_single_model(
+    #    volume_data_dict, slope_df, reval_map, direction_map,
+    #    "Procedural Volume Response", "% of Total NSQIP Cases",
+    #    "segmented_volume_slope_only.svg", target_cpts,
+    #    model_type='slope_only', show_ci=True)
     
-    plot_volume_single_model(
-        volume_data_dict, level_df, reval_map, direction_map,
-        "Procedural Volume Response", "% of Total NSQIP Cases",
-        "segmented_volume_level_slope.svg", target_cpts,
-        model_type='level_slope', show_ci=True)
+    #plot_volume_single_model(
+    #    volume_data_dict, level_df, reval_map, direction_map,
+    #    "Procedural Volume Response", "% of Total NSQIP Cases",
+    #    "segmented_volume_level_slope.svg", target_cpts,
+    #    model_type='level_slope', show_ci=True)
     
-    slope_df.to_csv('volume_slope_only_results.csv', index=False)
-    level_df.to_csv('volume_level_slope_results.csv', index=False)
+    #slope_df.to_csv('volume_slope_only_results.csv', index=False)
+    #level_df.to_csv('volume_level_slope_results.csv', index=False)
+
+    NSQIP_VOLUME_CPTS = ['21556', '30520', '38542', '42415', '42420', '42440', '60220']
+
+    plot_volume_mnpb_style(
+        volume_data_dict,
+        slope_df,
+        reval_map,
+        direction_map,
+        outcome_name="Procedural Volume Response",
+        ylabel="% of Total NSQIP Cases",
+        filename="segmented_volume_mnpb_style.svg",
+        cpt_list=NSQIP_VOLUME_CPTS,
+        max_cols=3,
+    )
+
+    plot_volume_mnpb_style(
+        volume_data_dict,
+        slope_df,
+        reval_map,
+        direction_map,
+        outcome_name="Procedural Volume Response",
+        ylabel="% of Total NSQIP Cases",
+        filename="segmented_volume_mnpb_style.png",
+        cpt_list=NSQIP_VOLUME_CPTS,
+        max_cols=3,
+    )
 
 if __name__ == "__main__":
     main()
