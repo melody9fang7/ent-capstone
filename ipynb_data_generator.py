@@ -39,7 +39,7 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
         ncpt = 2 if has_other else 1
 
         row = {
-            'AGE': random.randint(14, 103),
+            'AGE': random.randint(11, 104),
             'AGEDAY': np.nan,
             'AGEMONTH': np.nan,
             'AHOUR': random.choice([600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700]),
@@ -90,7 +90,7 @@ def generate_fake_hcup(target_file_path, num_rows=1000):
             'I9_DX4': np.nan,
             'I9_DX5': np.nan,
             'I9_DX_VISIT_Reason': ICD9_OPTIONS[dx9_idx],
-            'KEY': fake.unique.random_int(min=300000000, max=999999999),
+            'KEY': fake.unique.random_int(min=0, max=99999),
             'LOS': los,
             'LOS_X': los,
             'NCPT': ncpt,
